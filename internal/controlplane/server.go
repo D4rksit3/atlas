@@ -39,9 +39,9 @@ func NewServer(store *Store, heartbeatInterval int, corsOrigin string) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	// Patrones con método y comodín: requiere Go 1.22+.
-	mux.HandleFunc("GET /healthz", s.handleHealth)             // liveness
-	mux.HandleFunc("GET /readyz", s.handleHealth)              // readiness
-	mux.HandleFunc("GET /metrics", s.handleMetrics)            // Prometheus
+	mux.HandleFunc("GET /healthz", s.handleHealth)  // liveness
+	mux.HandleFunc("GET /readyz", s.handleHealth)   // readiness
+	mux.HandleFunc("GET /metrics", s.handleMetrics) // Prometheus
 	mux.HandleFunc("POST /v1/agents/register", s.handleRegister)
 	mux.HandleFunc("POST /v1/agents/{id}/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("GET /v1/topology", s.handleTopology)

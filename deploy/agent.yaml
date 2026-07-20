@@ -1,0 +1,88 @@
+# Despliegue del agente de Atlas DENTRO de un clúster (modo kube, in-cluster).
+#
+#   kubectl apply -f deploy/agent.yaml
+#
+# Antes:
+#   - construye y publica la imagen del agente (ver Dockerfile, target 'agent')
+#   - ajusta ATLAS_CONTROL_PLANE y la imagen abajo.
+#
+# RBAC de mínimo privilegio: el agente SOLO lee nodos y cargas. No puede
+# modificar nada en el clúster.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: atlas-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: atlas-agent
+  namespace: atlas-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: atlas-agent-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: atlas-agent-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: atlas-agent-readonly
+subjects:
+  - kind: ServiceAccount
+    name: atlas-agent
+    namespace: atlas-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlas-agent
+  namespace: atlas-system
+  labels: { app: atlas-agent }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: atlas-agent }
+  template:
+    metadata:
+      labels: { app: atlas-agent }
+    spec:
+      serviceAccountName: atlas-agent
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: agent
+          # TODO: reemplaza por tu imagen publicada (Dockerfile target 'agent').
+          image: ghcr.io/atlasctl/atlas-agent:latest
+          args:
+            - "--collector=kube"       # lee este clúster real (in-cluster)
+            - "--name=$(CLUSTER_NAME)"
+            - "--provider=$(PROVIDER)"
+          env:
+            # A dónde marca hacia casa el agente (conexión saliente).
+            - name: ATLAS_CONTROL_PLANE
+              value: "https://atlas-controlplane.example.com"
+            - name: CLUSTER_NAME
+              value: "mi-cluster"
+            - name: PROVIDER
+              value: "onprem"          # onprem | aws | oci
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits:   { cpu: "100m", memory: "128Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

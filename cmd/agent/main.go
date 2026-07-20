@@ -21,6 +21,8 @@ func main() {
 	name := flag.String("name", envOr("ATLAS_CLUSTER_NAME", "on-prem lab"), "nombre legible del clúster")
 	clusterID := flag.String("cluster-id", os.Getenv("ATLAS_CLUSTER_ID"), "id estable del clúster (por defecto: slug del nombre)")
 	provider := flag.String("provider", envOr("ATLAS_PROVIDER", "onprem"), "onprem | aws | oci")
+	collectorMode := flag.String("collector", envOr("ATLAS_COLLECTOR", "sample"), "sample (datos ficticios) | kube (clúster real vía client-go)")
+	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "ruta al kubeconfig (modo kube; vacío = in-cluster o ~/.kube/config)")
 	workers := flag.Int("sample-workers", 3, "nº de nodos worker en el colector de ejemplo")
 	flag.Parse()
 
@@ -36,8 +38,23 @@ func main() {
 		Provider:        api.Provider(*provider),
 	}
 
-	// De momento, colector de ejemplo. En fase 1 se cambia por client-go.
-	collector := agent.NewSampleCollector(cfg.Provider, *workers)
+	// Selección de colector: 'kube' lee un clúster real; 'sample' datos ficticios.
+	var collector agent.Collector
+	switch *collectorMode {
+	case "kube":
+		kc, err := agent.NewKubeCollector(*kubeconfig)
+		if err != nil {
+			log.Fatalf("no pude inicializar el colector kube: %v", err)
+		}
+		collector = kc
+		log.Printf("colector: kube (leyendo un clúster real)")
+	case "sample":
+		collector = agent.NewSampleCollector(cfg.Provider, *workers)
+		log.Printf("colector: sample (datos de ejemplo)")
+	default:
+		log.Fatalf("colector desconocido %q (usa: sample | kube)", *collectorMode)
+	}
+
 	a := agent.New(cfg, collector)
 
 	ctx, cancel := context.WithCancel(context.Background())

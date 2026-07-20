@@ -93,11 +93,31 @@ falta antes de exponerlo (mTLS, TLS, OIDC en la GUI, fijar CORS). El CI incluye
 
 Los tipos viven en [`pkg/api/types.go`](pkg/api/types.go). Cámbialos ahí y propaga a Go y a `web/src/api.ts`.
 
+## Conectar un clúster real (colector kube)
+
+El agente tiene dos colectores:
+
+- `sample` (por defecto): datos ficticios, para ver el mapa sin clúster.
+- `kube`: lee un clúster **real** con **client-go** (nodos + Deployments/StatefulSets).
+
+```bash
+# Local, contra tu k3s (usa ~/.kube/config o $KUBECONFIG):
+go run ./cmd/agent --collector kube --name "mi k3s" --provider onprem \
+  --control-plane http://localhost:8080
+
+# Dentro de un clúster (in-cluster, RBAC de solo lectura):
+kubectl apply -f deploy/agent.yaml   # ajusta imagen y ATLAS_CONTROL_PLANE antes
+```
+
+El colector kube usa `rest.InClusterConfig()` si corre como Pod, o el kubeconfig
+si corre fuera. Los permisos son **mínimos** (solo lectura de nodos y cargas) —
+ver `deploy/agent.yaml`.
+
 ## Lo que es de verdad y lo que es andamio
 
-- **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa. Es el esqueleto correcto.
-- **Andamio (TODO fase 1+):**
-  - `internal/agent/collector.go` devuelve datos **de ejemplo**. Sustitúyelo por un colector real con **client-go** (`rest.InClusterConfig`, listar Nodes/Deployments). Las **conexiones** reales salen de **Hubble** (Cilium), no de la API de K8s.
+- **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go**. Es el esqueleto correcto.
+- **Andamio (TODO fase 2+):**
+  - **Conexiones (Links):** las conexiones reales entre servicios salen de **Hubble** (Cilium), no de la API de K8s. El colector deja `Links` vacío hasta integrar Hubble.
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
   - El store es en memoria. Para multi-réplica y persistencia, mételo detrás de **Postgres**.
   - Añadir **mTLS** de verdad (hoy el token es un placeholder de sesión).

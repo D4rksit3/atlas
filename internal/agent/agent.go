@@ -121,7 +121,14 @@ func (a *Agent) register(ctx context.Context) error {
 var errNeedsReregister = fmt.Errorf("el control plane pide re-registro")
 
 func (a *Agent) heartbeat(ctx context.Context) error {
-	hb := api.Heartbeat{Token: a.token, Snapshot: a.collector.Collect()}
+	snap, err := a.collector.Collect()
+	if err != nil {
+		// Un fallo del colector no debe tumbar la sesión: registramos y saltamos
+		// este latido. El clúster mantiene su último snapshot hasta que expire.
+		log.Printf("colector falló, salto este latido: %v", err)
+		return nil
+	}
+	hb := api.Heartbeat{Token: a.token, Snapshot: snap}
 	path := "/v1/agents/" + a.cfg.ClusterID + "/heartbeat"
 	return a.post(ctx, path, hb, nil)
 }

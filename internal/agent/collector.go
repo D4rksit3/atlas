@@ -7,8 +7,10 @@ import (
 )
 
 // Collector obtiene el estado del clúster donde corre el agente.
+// Collect puede fallar (p. ej. la API de K8s no responde); el agente decide
+// qué hacer con el error (hoy: registra y salta ese latido).
 type Collector interface {
-	Collect() api.Snapshot
+	Collect() (api.Snapshot, error)
 }
 
 // SampleCollector produce una topología de ejemplo, coherente con el provider,
@@ -31,14 +33,14 @@ func NewSampleCollector(provider api.Provider, workerNodes int) *SampleCollector
 	return &SampleCollector{provider: provider, nodes: workerNodes}
 }
 
-func (c *SampleCollector) Collect() api.Snapshot {
+func (c *SampleCollector) Collect() (api.Snapshot, error) {
 	nodes := []api.Node{
 		{Name: "cp-0", Role: "control-plane", Ready: true},
 	}
 	for i := 0; i < c.nodes; i++ {
 		nodes = append(nodes, api.Node{
-			Name:  workerName(c.provider, i),
-			Role:  "worker",
+			Name: workerName(c.provider, i),
+			Role: "worker",
 			// Un pequeño ruido para que se note que es un mapa "vivo".
 			Ready: rand.Float64() > 0.05,
 		})
@@ -54,7 +56,7 @@ func (c *SampleCollector) Collect() api.Snapshot {
 		{From: "api", To: "postgres"},
 	}
 
-	return api.Snapshot{Nodes: nodes, Workloads: workloads, Links: links}
+	return api.Snapshot{Nodes: nodes, Workloads: workloads, Links: links}, nil
 }
 
 func workerName(p api.Provider, i int) string {
