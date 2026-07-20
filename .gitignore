@@ -1,0 +1,20 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+
+# Node / Vite
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Entorno
+.env
+.env.local
+*.log
+
+# Editores / SO
+.DS_Store
+.idea/
+.vscode/
