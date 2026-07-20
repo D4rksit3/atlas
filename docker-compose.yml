@@ -1,0 +1,48 @@
+# Stack completo de Atlas con un solo comando, sin instalar Go ni Node:
+#
+#   docker compose up --build
+#
+# Luego abre http://localhost:5173 (la GUI) — verás los 3 agentes de ejemplo.
+
+services:
+  controlplane:
+    build:
+      context: .
+      target: controlplane
+    command: ["--addr", ":8080"]
+    ports:
+      - "8080:8080"          # API + /metrics + /healthz
+    healthcheck:
+      # binario distroless sin shell: usamos el propio arranque como readiness.
+      test: ["CMD", "/controlplane", "--help"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  agent-onprem:
+    build: { context: ., target: agent }
+    command: ["--control-plane", "http://controlplane:8080", "--name", "on-prem lab", "--provider", "onprem", "--cluster-id", "onprem-lab"]
+    depends_on: [controlplane]
+    restart: unless-stopped
+
+  agent-aws:
+    build: { context: ., target: agent }
+    command: ["--control-plane", "http://controlplane:8080", "--name", "prod eks", "--provider", "aws", "--cluster-id", "prod-eks", "--sample-workers", "4"]
+    depends_on: [controlplane]
+    restart: unless-stopped
+
+  agent-oci:
+    build: { context: ., target: agent }
+    command: ["--control-plane", "http://controlplane:8080", "--name", "prod oke", "--provider", "oci", "--cluster-id", "prod-oke", "--sample-workers", "2"]
+    depends_on: [controlplane]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "5173:80"            # la GUI
+    depends_on: [controlplane]
+    restart: unless-stopped

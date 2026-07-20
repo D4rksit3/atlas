@@ -19,10 +19,11 @@ func main() {
 	addr := flag.String("addr", envOr("ATLAS_ADDR", ":8080"), "dirección de escucha")
 	heartbeat := flag.Int("heartbeat", 10, "segundos entre latidos que se piden al agente")
 	offline := flag.Duration("offline-after", 30*time.Second, "tiempo sin latidos para marcar un clúster offline")
+	corsOrigin := flag.String("cors-origin", envOr("ATLAS_CORS_ORIGIN", "*"), "origen permitido para la GUI (usa el dominio concreto en producción)")
 	flag.Parse()
 
 	store := controlplane.NewStore(*offline)
-	srv := controlplane.NewServer(store, *heartbeat)
+	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin)
 
 	httpServer := &http.Server{
 		Addr:              *addr,

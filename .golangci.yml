@@ -1,0 +1,21 @@
+# Configuración de golangci-lint. Instala: https://golangci-lint.run
+# Uso: golangci-lint run
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck      # errores no comprobados
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - misspell
+    - gosec         # problemas de seguridad comunes
+    - revive        # estilo
+
+issues:
+  exclude-rules:
+    # El colector de ejemplo usa math/rand a propósito (datos ficticios).
+    - path: internal/agent/collector.go
+      linters: [gosec]

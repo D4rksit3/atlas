@@ -32,30 +32,55 @@ atlas/
 └── docs/                 # arquitectura
 ```
 
-## Requisitos
+## Arranque rápido
 
-- **Go 1.22+** (usa los patrones de ruta con método/comodín del router estándar)
-- **Node 20+** para la GUI
-
-## Arranque rápido (3 terminales)
+### Opción A — con Docker (no necesitas instalar nada)
 
 ```bash
-# 1) Control plane  ->  http://localhost:8080
-make run-controlplane
-
-# 2) Un agente de ejemplo (trae un colector de datos ficticios,
-#    así ves el mapa vivo SIN un clúster real todavía)
-make run-agent
-#   añade más entornos:
-#   go run ./cmd/agent --name "prod eks"  --provider aws --cluster-id prod-eks
-#   go run ./cmd/agent --name "prod oke"  --provider oci --cluster-id prod-oke
-
-# 3) GUI  ->  http://localhost:5173
-make web-install
-make web-dev
+docker compose up --build
 ```
 
-Abre http://localhost:5173 y verás cada agente aparecer en el mapa, con su conexión al control plane y sus nodos worker. Apaga un agente (Ctrl-C) y en ~30 s se marca *offline*.
+Abre **http://localhost:5173**. Verás los 3 agentes de ejemplo (on-prem / AWS /
+OCI) aparecer en el mapa con su conexión al control plane.
+
+### Opción B — nativo, un solo comando
+
+Requisitos: **Go 1.22+** y **Node 20+**.
+
+```bash
+./scripts/dev.sh      # o:  make up
+```
+
+Compila, elige un puerto libre para el control plane, arranca 3 agentes de
+ejemplo y la GUI apuntando al puerto correcto, y limpia todo al salir (Ctrl-C).
+
+> El agente trae un **colector de datos ficticios**, así ves el mapa vivo **sin
+> un clúster real todavía**. Apaga un agente y en ~30 s se marca *offline*.
+
+### Manual (3 terminales)
+
+```bash
+make run-controlplane          # http://localhost:8080
+make run-agent                 # un agente on-prem de ejemplo
+make web-install && make web-dev   # http://localhost:5173
+```
+
+## Observabilidad
+
+El control plane expone, además de la API:
+
+| Endpoint | Para qué |
+|---|---|
+| `GET /healthz` · `GET /readyz` | liveness / readiness (para K8s o balanceadores) |
+| `GET /metrics` | métricas en formato **Prometheus** (peticiones, registros, latidos, clústeres online) |
+
+Registro estructurado de cada petición (método, ruta, latencia) por stdout.
+
+## Seguridad
+
+Lee **[SECURITY.md](SECURITY.md)**: modelo de amenazas, qué ya está bien y qué
+falta antes de exponerlo (mTLS, TLS, OIDC en la GUI, fijar CORS). El CI incluye
+`govulncheck`. **No lo expongas a internet en fase de scaffolding.**
 
 ## La API (contrato)
 

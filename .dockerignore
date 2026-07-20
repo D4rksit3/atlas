@@ -1,0 +1,8 @@
+bin/
+web/node_modules/
+web/dist/
+.git/
+*.log
+.env
+.env.local
+docs/
