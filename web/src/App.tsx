@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { TopologyMap } from "./TopologyMap";
+import { Onboarding } from "./Onboarding";
 import {
   fetchAuthConfig,
   handleCallback,
@@ -15,6 +16,7 @@ export default function App() {
   const [cfg, setCfg] = useState<AuthConfig | null>(null);
   const [sess, setSess] = useState<Session | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [onboarding, setOnboarding] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -61,6 +63,9 @@ export default function App() {
         <span className="crumb">
           Consola de arquitectura › <b>Topología global</b>
         </span>
+        <button className="link-cluster" onClick={() => setOnboarding(true)}>
+          + Vincular clúster
+        </button>
         <span className="region">
           {sess ? (
             <span className="user">
@@ -79,6 +84,7 @@ export default function App() {
       <main>
         <TopologyMap />
       </main>
+      {onboarding && <Onboarding onClose={() => setOnboarding(false)} />}
     </div>
   );
 }

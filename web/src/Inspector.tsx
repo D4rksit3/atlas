@@ -375,6 +375,37 @@ export function Inspector({
               Instalar requiere el RBAC opt-in (<span className="mono">deploy/agent-addons.yaml</span>).
             </div>
 
+            {/* acceso a Grafana cuando el monitoreo está instalado */}
+            {isInstalled("kube-prometheus-stack") && (
+              <>
+                <div className="insp-section">Acceder a Grafana</div>
+                <div className="grafana-access">
+                  <code className="grafana-cmd">
+                    kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
+                  </code>
+                  <div className="grafana-links">
+                    <button
+                      className="btn"
+                      onClick={() =>
+                        navigator.clipboard?.writeText(
+                          "kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80",
+                        )
+                      }
+                    >
+                      Copiar comando
+                    </button>
+                    <a className="btn primary grafana-open" href="http://localhost:3000" target="_blank" rel="noreferrer">
+                      Abrir Grafana ↗
+                    </a>
+                  </div>
+                  <div className="insp-hint-sm">
+                    Usuario <span className="mono">admin</span> · la contraseña que pusiste al instalar
+                    (o <span className="mono">prom-operator</span> por defecto). Corre el port-forward y abre el enlace.
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* ---- proyectos GitOps (si ArgoCD está) ---- */}
             {isInstalled("argocd") && (
               <>

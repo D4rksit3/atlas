@@ -148,6 +148,11 @@ test-helm` (Falco, Helm → crea el release y el DaemonSet). El
 **kube-prometheus-stack** (Prometheus + Grafana + Alertmanager) usa la misma vía
 Helm y arranca completo (todos los componentes Ready).
 
+Algunos complementos exponen **valores editables** al instalar (formulario en la
+GUI): p. ej. la **contraseña de Grafana** y la **retención de Prometheus**. El
+agente solo aplica valores en **paths de Helm vetados** por el catálogo
+(`AddonParam.Path`), nunca rutas arbitrarias. Verificado con `make test-values`.
+
 > Nota (Helm in-cluster): Helm necesita un directorio de caché escribible. Con
 > `readOnlyRootFilesystem`, monta un `emptyDir` y define `HELM_CACHE_HOME`,
 > `HELM_CONFIG_HOME` y `HELM_DATA_HOME` (ver `deploy/agent-addons.yaml`).
@@ -175,6 +180,15 @@ Inspector muestra su estado, el **árbol de recursos** que despliega (de
 (vuelve a la revisión anterior del historial, pausando el auto-sync para que no
 vuelva a avanzar). El agente lo hace tocando la Application (no necesita
 cluster-admin: solo permiso sobre `applications`). Verificado con `make test-sync`.
+
+## Vincular otro clúster (asistente) y acceder a Grafana
+
+- **Vincular clúster:** el botón *"+ Vincular clúster"* abre un asistente que, a
+  partir del nombre/proveedor/URL, genera **listos para copiar**: el comando del
+  certificado (`atlas-certs client`), el `Secret` y el manifiesto del agente con
+  mTLS. **No expone la CA** ni muta nada — tú ejecutas los comandos.
+- **Acceder a Grafana:** cuando el monitoreo está instalado, el Inspector del
+  clúster muestra el comando de `port-forward` y un enlace **Abrir Grafana**.
 
 ## Desplegar Atlas dentro de Kubernetes
 
