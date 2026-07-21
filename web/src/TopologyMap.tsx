@@ -1,6 +1,7 @@
-// El mapa vivo: descarga la topología del control plane cada pocos segundos y
-// la dibuja con React Flow. Disposición por columnas (consola → control plane →
-// clúster → nodos → cargas). Las conexiones entre cargas vienen de Hubble.
+// El mapa vivo: descarga la topología del control plane cada pocos segundos y la
+// dibuja con React Flow. La DISPOSICIÓN la calcula dagre (ver layout.ts): consola
+// → control plane → clúster → nodos → cargas, de izquierda a derecha. Las aristas
+// que se pintan conservan su dirección semántica.
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
@@ -15,6 +16,7 @@ import "reactflow/dist/style.css";
 import { fetchTopology, type Topology, type Workload } from "./api";
 import { ServiceNode, type ServiceNodeData } from "./ServiceNode";
 import { providerColor, providerLabel, type IconKey } from "./icons";
+import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 
 const nodeTypes = { service: ServiceNode };
 const POLL_MS = 5000;
@@ -29,6 +31,8 @@ const SYSTEM_NS = new Set([
 ]);
 
 const LINK_COLOR = "#F0932B"; // naranja: conexiones observadas (Hubble)
+const CP_NODE = "#7C5CE6"; // violeta: nodo control-plane
+const WORKER = "#0E9E6E"; // verde: nodo worker
 
 function workloadIcon(w: Workload): IconKey {
   return w.kind === "StatefulSet" ? "database" : "workload";
@@ -40,31 +44,42 @@ function workloadColor(w: Workload): string {
   return "#2D74DA"; // apps
 }
 
-/** Convierte la topología del backend en nodos/aristas de React Flow. */
-function build(topo: Topology | null): {
+interface Built {
   nodes: Node<ServiceNodeData>[];
   edges: Edge[];
-} {
+  layoutEdges: LayoutEdge[];
+  sizes: Map<string, NodeSize>;
+}
+
+/** Convierte la topología del backend en nodos/aristas (sin posicionar todavía). */
+function build(topo: Topology | null): Built {
   const nodes: Node<ServiceNodeData>[] = [];
   const edges: Edge[] = [];
+  const layoutEdges: LayoutEdge[] = [];
+  const sizes = new Map<string, NodeSize>();
+
+  const add = (
+    id: string,
+    data: ServiceNodeData,
+  ): Node<ServiceNodeData> => {
+    sizes.set(id, sizeFor(data.label, data.sublabel));
+    const n: Node<ServiceNodeData> = {
+      id,
+      type: "service",
+      position: { x: 0, y: 0 }, // dagre lo coloca después
+      data,
+    };
+    nodes.push(n);
+    return n;
+  };
 
   // Consola (GUI) y control plane, siempre presentes.
-  nodes.push({
-    id: "console",
-    type: "service",
-    position: { x: 0, y: 260 },
-    data: { label: "Consola · GUI", color: "#12B5A5", icon: "console" },
-  });
-  nodes.push({
-    id: "control-plane",
-    type: "service",
-    position: { x: 320, y: 260 },
-    data: {
-      label: "Control Plane",
-      sublabel: "self-hosted",
-      color: "#5B57E0",
-      icon: "controlplane",
-    },
+  add("console", { label: "Consola · GUI", color: "#12B5A5", icon: "console" });
+  add("control-plane", {
+    label: "Control Plane",
+    sublabel: "self-hosted",
+    color: "#5B57E0",
+    icon: "controlplane",
   });
   edges.push({
     id: "e-console-cp",
@@ -73,36 +88,25 @@ function build(topo: Topology | null): {
     animated: true,
     markerEnd: { type: MarkerType.ArrowClosed },
   });
+  layoutEdges.push({ source: "console", target: "control-plane" });
 
   const clusters = topo?.clusters ?? [];
-  let yCursor = 0;
   clusters.forEach((c) => {
     const color = providerColor[c.provider] ?? "#5A6577";
     const clusterId = `cluster-${c.clusterId}`;
-    const workers = (c.snapshot?.nodes ?? []).filter((n) => n.role === "worker");
+    const allNodes = c.snapshot?.nodes ?? [];
     const workloads = c.snapshot?.workloads ?? [];
 
-    // Alto de la banda de este clúster (para no solapar con el siguiente).
-    const rows = Math.max(workers.length, workloads.length, 1);
-    const band = rows * 82;
-    const base = yCursor;
-    const clusterY = base + band / 2 - 30;
-
-    nodes.push({
-      id: clusterId,
-      type: "service",
-      position: { x: 680, y: clusterY },
-      data: {
-        label: c.name,
-        sublabel: providerLabel[c.provider] ?? c.provider,
-        color,
-        icon: "cluster",
-        online: c.online,
-        muted: !c.online,
-      },
+    add(clusterId, {
+      label: c.name,
+      sublabel: providerLabel[c.provider] ?? c.provider,
+      color,
+      icon: "cluster",
+      online: c.online,
+      muted: !c.online,
     });
 
-    // El agente marca hacia casa -> arista del clúster al control plane.
+    // El agente marca hacia casa -> arista del clúster al control plane (visual).
     edges.push({
       id: `e-${clusterId}-cp`,
       source: clusterId,
@@ -112,47 +116,53 @@ function build(topo: Topology | null): {
       markerEnd: { type: MarkerType.ArrowClosed, color },
       label: c.online ? "mTLS" : "offline",
     });
+    // ...pero para DISPONER, el clúster va DESPUÉS del control plane.
+    layoutEdges.push({ source: "control-plane", target: clusterId });
 
-    // Nodos worker: columna intermedia.
-    workers.forEach((n, j) => {
+    // Nodos (máquinas): control-plane + workers. Un servidor = un nodo.
+    allNodes.forEach((n, j) => {
       const nid = `${clusterId}-node-${j}`;
-      nodes.push({
-        id: nid,
-        type: "service",
-        position: { x: 980, y: base + j * 82 },
-        data: {
-          label: n.name,
-          color: "#0E9E6E",
-          icon: "server",
-          online: n.ready,
-          muted: !c.online,
-        },
+      const isCP = n.role === "control-plane";
+      add(nid, {
+        label: n.name,
+        sublabel: n.role,
+        color: isCP ? CP_NODE : WORKER,
+        icon: "server",
+        online: n.ready,
+        muted: !c.online,
       });
       edges.push({
         id: `e-${nid}`,
         source: clusterId,
         target: nid,
-        style: { stroke: "#0E9E6E", opacity: 0.45 },
+        style: { stroke: isCP ? CP_NODE : WORKER, opacity: 0.4 },
       });
+      layoutEdges.push({ source: clusterId, target: nid });
     });
 
-    // Cargas: columna derecha. Guardamos el id por nombre para tejer los enlaces.
+    // Cargas (servicios lógicos): pueden cruzar varios nodos, por eso van en su
+    // propia columna. Para disponerlas una capa a la derecha, las colgamos del
+    // primer nodo en el grafo de layout (no se dibuja esa arista).
+    const layoutParent = allNodes.length ? `${clusterId}-node-0` : clusterId;
     const wlId = new Map<string, string>();
-    workloads.forEach((w, j) => {
+    workloads.forEach((w) => {
       const id = `${clusterId}-wl-${w.namespace}-${w.name}`;
       wlId.set(w.name, id);
-      nodes.push({
-        id,
-        type: "service",
-        position: { x: 1360, y: base + j * 82 },
-        data: {
-          label: w.name,
-          sublabel: `${w.kind} · ${w.replicas}`,
-          color: workloadColor(w),
-          icon: workloadIcon(w),
-          muted: !c.online || SYSTEM_NS.has(w.namespace),
-        },
+      add(id, {
+        label: w.name,
+        sublabel: `${w.kind} · ${w.replicas}`,
+        color: workloadColor(w),
+        icon: workloadIcon(w),
+        muted: !c.online || SYSTEM_NS.has(w.namespace),
       });
+      // Pertenencia al clúster (arista muy tenue) + jerarquía de layout.
+      edges.push({
+        id: `e-belong-${id}`,
+        source: clusterId,
+        target: id,
+        style: { stroke: color, opacity: 0.12 },
+      });
+      layoutEdges.push({ source: layoutParent, target: id });
     });
 
     // Conexiones REALES entre servicios (observadas por Hubble).
@@ -165,15 +175,14 @@ function build(topo: Topology | null): {
         source: s,
         target: t,
         animated: c.online,
+        zIndex: 5,
         style: { stroke: LINK_COLOR, strokeWidth: 1.8 },
         markerEnd: { type: MarkerType.ArrowClosed, color: LINK_COLOR },
       });
     });
-
-    yCursor = base + band + 90;
   });
 
-  return { nodes, edges };
+  return { nodes, edges, layoutEdges, sizes };
 }
 
 export function TopologyMap() {
@@ -202,7 +211,11 @@ export function TopologyMap() {
     };
   }, []);
 
-  const { nodes, edges } = useMemo(() => build(topo), [topo]);
+  const { nodes, edges } = useMemo(() => {
+    const b = build(topo);
+    return { nodes: layout(b.nodes, b.layoutEdges, b.sizes, "LR"), edges: b.edges };
+  }, [topo]);
+
   const clusterCount = topo?.clusters?.length ?? 0;
 
   // Reencuadra solo cuando cambia el CONJUNTO de nodos (no en cada poll), para
@@ -210,7 +223,7 @@ export function TopologyMap() {
   const sig = nodes.map((n) => n.id).join("|");
   useEffect(() => {
     const t = setTimeout(() => {
-      instance.current?.fitView({ padding: 0.18, duration: 400 });
+      instance.current?.fitView({ padding: 0.16, duration: 400 });
     }, 50);
     return () => clearTimeout(t);
   }, [sig]);
