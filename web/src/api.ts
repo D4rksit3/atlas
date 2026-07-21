@@ -36,10 +36,29 @@ export interface Link {
   to: string;
 }
 
+export interface App {
+  name: string;
+  namespace: string;
+  repoURL: string;
+  path: string;
+  revision?: string;
+  sync: string; // Synced | OutOfSync | Unknown
+  health: string; // Healthy | Progressing | Degraded | ...
+}
+
+export interface AppSpec {
+  name: string;
+  repoURL: string;
+  path: string;
+  namespace: string;
+  revision?: string;
+}
+
 export interface Snapshot {
   nodes: Node[] | null;
   workloads: Workload[] | null;
   links: Link[] | null;
+  apps?: App[] | null;
 }
 
 export interface ClusterView {
@@ -66,7 +85,7 @@ export async function fetchTopology(): Promise<Topology> {
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
 
-export type ActionKind = "scale" | "restart" | "install";
+export type ActionKind = "scale" | "restart" | "install" | "addapp";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 export interface ActionRequest {
@@ -76,6 +95,7 @@ export interface ActionRequest {
   workloadKind?: string;
   replicas?: number;
   addon?: string; // solo para install
+  app?: AppSpec; // solo para addapp
 }
 
 export interface Action {

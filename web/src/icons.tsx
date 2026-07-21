@@ -8,7 +8,8 @@ export type IconKey =
   | "agent"
   | "console"
   | "workload"
-  | "database";
+  | "database"
+  | "gitops";
 
 const PATHS: Record<IconKey, string> = {
   controlplane:
@@ -26,6 +27,9 @@ const PATHS: Record<IconKey, string> = {
   // StatefulSet / almacén: cilindro.
   database:
     "M12 3c3.9 0 6.5 1.1 6.5 2.5S15.9 8 12 8 5.5 6.9 5.5 5.5 8.1 3 12 3ZM5.5 5.5v13c0 1.4 2.6 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-13M5.5 12c0 1.4 2.6 2.5 6.5 2.5s6.5-1.1 6.5-2.5",
+  // GitOps: ramas de git (dos nodos y una bifurcación).
+  gitops:
+    "M6.5 3a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM6.5 8v8M6.5 16a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM17.5 6a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM17.5 11c0 3-2 4-5 4.5",
 };
 
 export function Icon({ name, size = 22 }: { name: IconKey; size?: number }) {

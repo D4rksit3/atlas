@@ -78,11 +78,25 @@ type Link struct {
 	To   string `json:"to"`
 }
 
+// App es una Application de ArgoCD (un "proyecto" GitOps): un repo Git que ArgoCD
+// mantiene sincronizado en el clúster. Su estado (sync/health) sale del CRD.
+type App struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"` // donde vive la Application (normalmente argocd)
+	RepoURL   string `json:"repoURL"`
+	Path      string `json:"path"`
+	Revision  string `json:"revision,omitempty"`
+	Sync      string `json:"sync"`   // Synced | OutOfSync | Unknown
+	Health    string `json:"health"` // Healthy | Progressing | Degraded | Missing | ...
+}
+
 // Snapshot es la foto del clúster que el agente envía en cada heartbeat.
 type Snapshot struct {
 	Nodes     []Node     `json:"nodes"`
 	Workloads []Workload `json:"workloads"`
 	Links     []Link     `json:"links"`
+	// Apps: proyectos GitOps (Applications de ArgoCD) si ArgoCD está instalado.
+	Apps []App `json:"apps,omitempty"`
 }
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
@@ -100,16 +114,27 @@ const (
 	ActionScale   = "scale"   // cambiar el nº de réplicas de una carga
 	ActionRestart = "restart" // reinicio suave (rollout) de una carga
 	ActionInstall = "install" // instalar un complemento vetado (p. ej. ArgoCD)
+	ActionAddApp  = "addapp"  // registrar un proyecto GitOps (Application de ArgoCD)
 )
+
+// AppSpec describe el proyecto GitOps a registrar (crea una Application de ArgoCD).
+type AppSpec struct {
+	Name      string `json:"name"`               // nombre de la Application
+	RepoURL   string `json:"repoURL"`            // repo Git
+	Path      string `json:"path"`               // ruta dentro del repo
+	Namespace string `json:"namespace"`          // namespace destino en el clúster
+	Revision  string `json:"revision,omitempty"` // rama/tag (por defecto HEAD)
+}
 
 // ActionRequest es lo que la GUI envía para encolar una acción.
 type ActionRequest struct {
-	Kind         string `json:"kind"`            // scale | restart | install
-	Namespace    string `json:"namespace"`       // namespace de la carga (scale/restart)
-	Workload     string `json:"workload"`        // nombre de la carga (scale/restart)
-	WorkloadKind string `json:"workloadKind"`    // Deployment | StatefulSet
-	Replicas     int    `json:"replicas"`        // objetivo (solo scale)
-	Addon        string `json:"addon,omitempty"` // complemento a instalar (solo install)
+	Kind         string   `json:"kind"`            // scale | restart | install | addapp
+	Namespace    string   `json:"namespace"`       // namespace de la carga (scale/restart)
+	Workload     string   `json:"workload"`        // nombre de la carga (scale/restart)
+	WorkloadKind string   `json:"workloadKind"`    // Deployment | StatefulSet
+	Replicas     int      `json:"replicas"`        // objetivo (solo scale)
+	Addon        string   `json:"addon,omitempty"` // complemento a instalar (solo install)
+	App          *AppSpec `json:"app,omitempty"`   // proyecto a registrar (solo addapp)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
@@ -121,6 +146,7 @@ type Action struct {
 	WorkloadKind string    `json:"workloadKind"`
 	Replicas     int       `json:"replicas"`
 	Addon        string    `json:"addon,omitempty"`
+	App          *AppSpec  `json:"app,omitempty"`
 	Status       string    `json:"status"`
 	Error        string    `json:"error,omitempty"`
 	RequestedBy  string    `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)

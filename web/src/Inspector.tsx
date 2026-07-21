@@ -52,6 +52,14 @@ export function Inspector({
   const [installFb, setInstallFb] = useState<Feedback | null>(null);
   const ipoll = useRef<number | null>(null);
 
+  // --- proyectos GitOps (solo clústeres con ArgoCD) ---
+  const [pName, setPName] = useState("");
+  const [pRepo, setPRepo] = useState("");
+  const [pPath, setPPath] = useState("");
+  const [pNs, setPNs] = useState("default");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addFb, setAddFb] = useState<Feedback | null>(null);
+
   useEffect(() => {
     setName(annotation.displayName ?? "");
     setColor(annotation.color ?? "");
@@ -61,9 +69,65 @@ export function Inspector({
     setSavedFb(null);
     setOpFb(null);
     setInstallFb(null);
+    setAddFb(null);
+    setPName("");
+    setPRepo("");
+    setPPath("");
+    setPNs("default");
     return stopPoll;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel.key]);
+
+  async function addProject() {
+    if (!cluster) return;
+    if (!pName.trim() || !pRepo.trim()) {
+      setAddFb({ text: "nombre y repo son obligatorios", tone: "err" });
+      return;
+    }
+    setAddBusy(true);
+    setAddFb({ text: "registrando proyecto…", tone: "info" });
+    try {
+      const a = await postAction(cluster.clusterId, {
+        kind: "addapp",
+        app: {
+          name: pName.trim(),
+          repoURL: pRepo.trim(),
+          path: pPath.trim(),
+          namespace: pNs.trim() || "default",
+        },
+      });
+      let tries = 0;
+      const iv = window.setInterval(async () => {
+        tries++;
+        try {
+          const acts = await fetchActions(cluster.clusterId);
+          const st = acts.find((x) => x.id === a.id)?.status;
+          if (st === "done") {
+            window.clearInterval(iv);
+            setAddBusy(false);
+            setAddFb({ text: "proyecto registrado ✓ — ArgoCD lo sincronizará", tone: "ok" });
+            setPName("");
+            setPRepo("");
+            setPPath("");
+          } else if (st === "error") {
+            window.clearInterval(iv);
+            setAddBusy(false);
+            const err = acts.find((x) => x.id === a.id)?.error;
+            setAddFb({ text: `error: ${err ?? "desconocido"}`, tone: "err" });
+          } else if (tries > 30) {
+            window.clearInterval(iv);
+            setAddBusy(false);
+            setAddFb({ text: "sin confirmación aún…", tone: "err" });
+          }
+        } catch {
+          /* reintenta */
+        }
+      }, 2000);
+    } catch (e) {
+      setAddBusy(false);
+      setAddFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
+    }
+  }
 
   function stopPoll() {
     if (poll.current) window.clearInterval(poll.current);
@@ -256,6 +320,52 @@ export function Inspector({
                 permisos ampliados — ver <span className="mono">deploy/agent-addons.yaml</span>.
               </div>
             )}
+          </>
+        )}
+
+        {/* ---- proyectos GitOps (clúster con ArgoCD) ---- */}
+        {cluster && argocd && (
+          <>
+            <div className="insp-section">Proyectos (GitOps)</div>
+            {cluster.apps.length === 0 && (
+              <div className="insp-hint-sm">Aún no hay proyectos. Añade uno abajo.</div>
+            )}
+            {cluster.apps.map((app) => (
+              <div className="proj-row" key={app.name}>
+                <span
+                  className="proj-dot"
+                  style={{
+                    background:
+                      app.health === "Degraded" || app.health === "Missing"
+                        ? "#ff7c7c"
+                        : app.sync === "OutOfSync" || app.health === "Progressing"
+                          ? "#F0932B"
+                          : "var(--good)",
+                  }}
+                />
+                <div className="proj-meta">
+                  <span className="proj-name">{app.name}</span>
+                  <span className="proj-sub">
+                    {app.sync} · {app.health}
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            <div className="proj-form">
+              <input className="insp-input" placeholder="nombre del proyecto" value={pName}
+                onChange={(e) => setPName(e.target.value)} disabled={addBusy} />
+              <input className="insp-input" placeholder="https://github.com/org/repo" value={pRepo}
+                onChange={(e) => setPRepo(e.target.value)} disabled={addBusy} />
+              <input className="insp-input" placeholder="ruta (p. ej. manifests/)" value={pPath}
+                onChange={(e) => setPPath(e.target.value)} disabled={addBusy} />
+              <input className="insp-input" placeholder="namespace destino" value={pNs}
+                onChange={(e) => setPNs(e.target.value)} disabled={addBusy} />
+              <button className="btn primary" onClick={addProject} disabled={addBusy || !cluster.online}>
+                {addBusy ? "registrando…" : "Añadir proyecto"}
+              </button>
+            </div>
+            {addFb && <div className={`insp-fb ${addFb.tone}`}>{addFb.text}</div>}
           </>
         )}
 

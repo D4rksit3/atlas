@@ -142,6 +142,18 @@ instalar, el agente crea el namespace y aplica el manifiesto de ArgoCD con
 Verificado E2E (`make test-argocd`): la acción llega a `done`, ArgoCD queda
 instalado y **aparece en el propio mapa de Atlas**.
 
+### Proyectos GitOps: cada repo, en el mapa
+
+Con ArgoCD instalado, el Inspector del clúster tiene una sección **Proyectos
+(GitOps)**: lista las Applications con su estado (**Synced/OutOfSync**,
+**Healthy/Degraded**) y un formulario **Añadir proyecto** (repo Git, ruta,
+namespace destino). Al añadirlo, el agente crea la Application con **auto-sync**,
+así que **cada cambio que hagas en el repo aparece solo** en el clúster y en el
+mapa (los proyectos se dibujan como nodos GitOps, coloreados por su estado).
+
+Verificado E2E (`make test-gitops`): registrar un proyecto → ArgoCD lo sincroniza
+→ Atlas lo muestra **Synced** y sus cargas se despliegan solas.
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de

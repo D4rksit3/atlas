@@ -2,6 +2,7 @@
 // y estado, en el mismo estilo que el diagrama de arquitectura.
 import { Handle, Position } from "reactflow";
 import { Icon, type IconKey } from "./icons";
+import type { App } from "./api";
 
 // WorkloadOp: datos que necesita el Inspector para operar una carga.
 export interface WorkloadOp {
@@ -23,11 +24,12 @@ export interface Selection {
   cluster?: ClusterOps; // presente solo si es un clúster (complementos)
 }
 
-// ClusterOps: acciones a nivel de clúster (instalar complementos).
+// ClusterOps: acciones a nivel de clúster (complementos y proyectos GitOps).
 export interface ClusterOps {
   clusterId: string;
   online: boolean;
   argocd: boolean; // ¿ArgoCD ya instalado?
+  apps: App[]; // proyectos GitOps (Applications de ArgoCD)
 }
 
 export interface ServiceNodeData {

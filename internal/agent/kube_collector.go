@@ -11,12 +11,20 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/atlasctl/atlas/pkg/api"
 )
+
+// argoAppGVR es el recurso de las Applications de ArgoCD (proyectos GitOps).
+var argoAppGVR = schema.GroupVersionResource{
+	Group: "argoproj.io", Version: "v1alpha1", Resource: "applications",
+}
 
 // KubeCollector lee el estado de un clúster REAL mediante la API de Kubernetes
 // (client-go). Es el reemplazo de SampleCollector para producción.
@@ -26,6 +34,7 @@ import (
 // (Cilium) y se integran en fase 2.
 type KubeCollector struct {
 	client  kubernetes.Interface
+	dyn     dynamic.Interface
 	timeout time.Duration
 }
 
@@ -41,7 +50,11 @@ func NewKubeCollector(kubeconfig string) (*KubeCollector, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creando cliente de Kubernetes: %w", err)
 	}
-	return &KubeCollector{client: cs, timeout: 10 * time.Second}, nil
+	dyn, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creando cliente dinámico: %w", err)
+	}
+	return &KubeCollector{client: cs, dyn: dyn, timeout: 10 * time.Second}, nil
 }
 
 func buildConfig(kubeconfig string) (*rest.Config, error) {
@@ -114,9 +127,41 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 		return snap, fmt.Errorf("listando pods: %w", err)
 	}
 
-	// TODO(fase 2): poblar snap.Links desde Hubble (Cilium) — las conexiones
-	// reales entre servicios no están en la API de Kubernetes.
+	// Proyectos GitOps (Applications de ArgoCD), si ArgoCD está instalado.
+	// Best-effort: si el CRD no existe o no hay permiso, seguimos sin ellos.
+	snap.Apps = c.collectApps(ctx)
+
+	// Las conexiones (Links) reales entre servicios salen de Hubble (colector aparte).
 	return snap, nil
+}
+
+// collectApps lee las Applications de ArgoCD. Devuelve nil si no hay ArgoCD.
+func (c *KubeCollector) collectApps(ctx context.Context) []api.App {
+	list, err := c.dyn.Resource(argoAppGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil // sin ArgoCD (CRD ausente) o sin permiso: no es un fallo
+	}
+	apps := make([]api.App, 0, len(list.Items))
+	for i := range list.Items {
+		u := &list.Items[i]
+		repo, _, _ := unstructured.NestedString(u.Object, "spec", "source", "repoURL")
+		path, _, _ := unstructured.NestedString(u.Object, "spec", "source", "path")
+		rev, _, _ := unstructured.NestedString(u.Object, "spec", "source", "targetRevision")
+		sync, _, _ := unstructured.NestedString(u.Object, "status", "sync", "status")
+		health, _, _ := unstructured.NestedString(u.Object, "status", "health", "status")
+		if sync == "" {
+			sync = "Unknown"
+		}
+		if health == "" {
+			health = "Unknown"
+		}
+		apps = append(apps, api.App{
+			Name: u.GetName(), Namespace: u.GetNamespace(),
+			RepoURL: repo, Path: path, Revision: rev, Sync: sync, Health: health,
+		})
+	}
+	sort.Slice(apps, func(a, b int) bool { return apps[a].Name < apps[b].Name })
+	return apps
 }
 
 // fillPlacement lista los pods y rellena Workload.Placement con el reparto por

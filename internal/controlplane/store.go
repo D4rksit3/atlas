@@ -76,6 +76,11 @@ func summarize(a api.Action) string {
 		return fmt.Sprintf("reiniciar %s/%s", a.Namespace, a.Workload)
 	case api.ActionInstall:
 		return fmt.Sprintf("instalar el complemento %q", a.Addon)
+	case api.ActionAddApp:
+		if a.App != nil {
+			return fmt.Sprintf("registrar proyecto GitOps %q (%s)", a.App.Name, a.App.RepoURL)
+		}
+		return "registrar proyecto GitOps"
 	default:
 		return a.Kind + " " + a.Namespace + "/" + a.Workload
 	}
@@ -101,6 +106,11 @@ func validActionRequest(req api.ActionRequest) error {
 		// esté en su catálogo vetado).
 		if req.Addon == "" {
 			return errors.New("install requiere 'addon'")
+		}
+		return nil
+	case api.ActionAddApp:
+		if req.App == nil || req.App.Name == "" || req.App.RepoURL == "" || req.App.Namespace == "" {
+			return errors.New("addapp requiere app.name, app.repoURL y app.namespace")
 		}
 		return nil
 	case api.ActionScale, api.ActionRestart:

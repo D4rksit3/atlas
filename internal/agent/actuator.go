@@ -104,6 +104,8 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.restart(ctx, act)
 	case api.ActionInstall:
 		err = a.installAddon(ctx, act.Addon)
+	case api.ActionAddApp:
+		err = a.addApp(ctx, act.App)
 	default:
 		err = fmt.Errorf("acción no soportada: %q", act.Kind)
 	}
@@ -173,6 +175,43 @@ func (a *KubeActuator) installAddon(ctx context.Context, name string) error {
 		return err
 	}
 	return a.applyManifest(ctx, manifest, spec.namespace)
+}
+
+// addApp registra un proyecto GitOps: crea una Application de ArgoCD con auto-sync
+// (prune + self-heal), de modo que los cambios en el repo se apliquen solos.
+func (a *KubeActuator) addApp(ctx context.Context, spec *api.AppSpec) error {
+	if spec == nil || spec.Name == "" || spec.RepoURL == "" || spec.Namespace == "" {
+		return fmt.Errorf("faltan datos del proyecto (name, repoURL, namespace)")
+	}
+	rev := spec.Revision
+	if rev == "" {
+		rev = "HEAD"
+	}
+	app := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind":       "Application",
+		"metadata": map[string]interface{}{
+			"name":      spec.Name,
+			"namespace": "argocd",
+		},
+		"spec": map[string]interface{}{
+			"project": "default",
+			"source": map[string]interface{}{
+				"repoURL":        spec.RepoURL,
+				"path":           spec.Path,
+				"targetRevision": rev,
+			},
+			"destination": map[string]interface{}{
+				"server":    "https://kubernetes.default.svc",
+				"namespace": spec.Namespace,
+			},
+			"syncPolicy": map[string]interface{}{
+				"automated":   map[string]interface{}{"prune": true, "selfHeal": true},
+				"syncOptions": []interface{}{"CreateNamespace=true"},
+			},
+		},
+	}}
+	return a.applyOne(ctx, app, "argocd")
 }
 
 func (a *KubeActuator) fetch(ctx context.Context, url string) ([]byte, error) {

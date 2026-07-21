@@ -19,6 +19,7 @@ import {
   type Topology,
   type Workload,
   type Annotation,
+  type App,
 } from "./api";
 import {
   ServiceNode,
@@ -57,6 +58,14 @@ function workloadColor(w: Workload): string {
   if (SYSTEM_NS.has(w.namespace)) return "#5A6577"; // sistema, atenuado
   if (w.kind === "StatefulSet") return "#E7476B"; // datos
   return "#2D74DA"; // apps
+}
+
+/** Color de un proyecto GitOps según su estado de sync/health. */
+function appColor(app: App): string {
+  if (app.health === "Degraded" || app.health === "Missing") return "#E7476B"; // problema
+  if (app.sync === "OutOfSync" || app.health === "Progressing" || app.sync === "Unknown")
+    return "#F0932B"; // pendiente/en curso
+  return "#0E9E6E"; // Synced + Healthy
 }
 
 interface Built {
@@ -137,7 +146,12 @@ function build(
         title: c.name,
         kind: "Clúster",
         subtitle: providerLabel[c.provider] ?? c.provider,
-        cluster: { clusterId: c.clusterId, online: c.online, argocd: argocdInstalled },
+        cluster: {
+          clusterId: c.clusterId,
+          online: c.online,
+          argocd: argocdInstalled,
+          apps: c.snapshot?.apps ?? [],
+        },
       },
     });
 
@@ -281,6 +295,27 @@ function build(
           });
         });
       }
+    });
+
+    // Proyectos GitOps (Applications de ArgoCD) como nodos junto al clúster.
+    (c.snapshot?.apps ?? []).forEach((app, j) => {
+      const id = `${clusterId}-app-${j}`;
+      const col = appColor(app);
+      add(id, {
+        label: app.name,
+        sublabel: `GitOps · ${app.sync}`,
+        color: col,
+        icon: "gitops",
+        online: c.online,
+        muted: !c.online,
+      });
+      edges.push({
+        id: `e-${id}`,
+        source: clusterId,
+        target: id,
+        style: { stroke: col, opacity: 0.55, strokeDasharray: "3 3" },
+      });
+      layoutEdges.push({ source: clusterId, target: id });
     });
 
     // Conexiones REALES entre servicios (observadas por Hubble).
