@@ -106,6 +106,19 @@ Cada acción deja **rastro de quién la solicitó y su resultado**. El panel
 (`solicitó`/`ejecutó`, con `ok`/`error`), atribuidas al usuario OIDC. Verificado
 con `make test-audit`.
 
+## Vistas del mapa: flujo y por nodo
+
+El mapa tiene dos vistas (toggle en la barra):
+
+- **Flujo**: consola → control plane → clúster → nodos → cargas, con las conexiones
+  de Hubble y la ubicación de pods.
+- **Por nodo**: cada nodo (servidor) es una caja con las cargas cuyos pods corren
+  **en él**, con el conteo por nodo. Hace visible el modelo *un servidor = un nodo*.
+
+**¿Y si agrego otro servidor al clúster?** No hay que configurar nada: el agente
+lista los nodos en cada latido, así que un nodo nuevo (p. ej. `kubeadm join` o
+`k3d node create`) **aparece solo** en el mapa como una caja más, con sus pods.
+
 ## Editar el mapa
 
 Clic en un clúster o carga → el Inspector permite ponerle **alias**, **color** y

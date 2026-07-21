@@ -91,11 +91,45 @@ main { flex: 1; min-height: 0; padding: 16px; }
 .hint { color: var(--faint); font-size: 13px; }
 .err { color: #ff7c7c; font-size: 13px; }
 .bar-btn {
-  margin-left: auto; background: #212c3b; border: 1px solid var(--line);
+  background: #212c3b; border: 1px solid var(--line);
   color: var(--muted); font-size: 13px; padding: 5px 12px; border-radius: 7px; cursor: pointer;
 }
 .bar-btn:hover { color: var(--text); }
 .bar-btn.active { color: var(--text); border-color: var(--accent); }
+
+/* toggle de vista Flujo / Por nodo */
+.view-toggle { margin-left: auto; display: inline-flex; background: #212c3b; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.view-toggle button {
+  background: none; border: none; color: var(--muted); font-size: 13px;
+  padding: 5px 12px; cursor: pointer;
+}
+.view-toggle button.on { background: var(--accent); color: #0b121d; font-weight: 600; }
+
+/* nodo-grupo (vista por nodo) */
+.nodegroup {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  min-width: 220px; box-shadow: 0 2px 10px rgba(0,0,0,0.35); overflow: hidden;
+}
+.nodegroup.is-off { opacity: 0.55; }
+.ng-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); background: #1b2432;
+}
+.ng-ico { width: 26px; height: 26px; border-radius: 7px; flex: none; display: grid; place-items: center; color: #fff; }
+.ng-name { font-weight: 650; font-size: 13px; }
+.ng-role { font-size: 10.5px; color: var(--faint); font-family: ui-monospace, Menlo, monospace; }
+.ng-dot { width: 7px; height: 7px; border-radius: 50%; margin-left: auto; }
+.ng-items { padding: 5px; display: flex; flex-direction: column; gap: 3px; }
+.ng-empty { color: var(--faint); font-size: 12px; padding: 6px 8px; }
+.ng-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; border-radius: 6px; padding: 5px 7px; cursor: pointer; text-align: left;
+}
+.ng-item:hover { background: #212c3b; }
+.ng-item.muted { opacity: 0.55; }
+.ng-item-ico { width: 20px; height: 20px; border-radius: 5px; flex: none; display: grid; place-items: center; color: #fff; }
+.ng-item-label { font-size: 12.5px; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ng-item-pods { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, monospace; }
 .map-canvas { flex: 1; min-height: 0; position: relative; }
 
 /* panel de Actividad (auditoría) — a la izquierda para no chocar con el Inspector */

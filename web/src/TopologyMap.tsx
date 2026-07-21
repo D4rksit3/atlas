@@ -29,9 +29,11 @@ import { providerColor, providerLabel, type IconKey } from "./icons";
 import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 import { Inspector } from "./Inspector";
 import { AuditPanel } from "./AuditPanel";
+import { NodeGroup, type NodeGroupItem } from "./NodeGroup";
 
-const nodeTypes = { service: ServiceNode };
+const nodeTypes = { service: ServiceNode, nodegroup: NodeGroup };
 const POLL_MS = 5000;
+type ViewMode = "flow" | "node";
 
 // Namespaces del sistema: se muestran atenuados para no tapar tus apps.
 const SYSTEM_NS = new Set([
@@ -58,24 +60,31 @@ function workloadColor(w: Workload): string {
 }
 
 interface Built {
-  nodes: Node<ServiceNodeData>[];
+  nodes: Node[];
   edges: Edge[];
   layoutEdges: LayoutEdge[];
   sizes: Map<string, NodeSize>;
 }
 
+interface BuildOpts {
+  view: ViewMode;
+  onSelect: (s: Selection) => void;
+}
+
 /** Convierte la topología del backend en nodos/aristas (sin posicionar todavía).
- *  `annos` son los metadatos editables que se superponen (alias, color, nota). */
-function build(topo: Topology | null, annos: Record<string, Annotation>): Built {
-  const nodes: Node<ServiceNodeData>[] = [];
+ *  `annos` son los metadatos editables que se superponen (alias, color, nota).
+ *  `opts.view`: "flow" (flujo por capas) | "node" (cargas agrupadas por nodo). */
+function build(
+  topo: Topology | null,
+  annos: Record<string, Annotation>,
+  opts: BuildOpts,
+): Built {
+  const nodes: Node[] = [];
   const edges: Edge[] = [];
   const layoutEdges: LayoutEdge[] = [];
   const sizes = new Map<string, NodeSize>();
 
-  const add = (
-    id: string,
-    data: ServiceNodeData,
-  ): Node<ServiceNodeData> => {
+  const add = (id: string, data: ServiceNodeData): Node<ServiceNodeData> => {
     sizes.set(id, sizeFor(data.label, data.sublabel));
     const n: Node<ServiceNodeData> = {
       id,
@@ -141,6 +150,50 @@ function build(topo: Topology | null, annos: Record<string, Annotation>): Built 
     // ...pero para DISPONER, el clúster va DESPUÉS del control plane.
     layoutEdges.push({ source: "control-plane", target: clusterId });
 
+    // ---- Vista "por nodo": cada nodo es una caja con sus cargas dentro ----
+    if (opts.view === "node") {
+      allNodes.forEach((n, j) => {
+        const nid = `${clusterId}-ng-${j}`;
+        const isCP = n.role === "control-plane";
+        const items: NodeGroupItem[] = [];
+        workloads.forEach((w) => {
+          const pl = (w.placement ?? []).find((p) => p.node === n.name);
+          if (!pl) return; // esta carga no tiene pods en este nodo
+          const wKey = `${c.clusterId}/${w.namespace}/${w.name}`;
+          const wAnno = annos[wKey] ?? {};
+          const op = {
+            clusterId: c.clusterId, namespace: w.namespace, workload: w.name,
+            workloadKind: w.kind, replicas: w.replicas, online: c.online,
+          };
+          items.push({
+            key: `${wKey}@${n.name}`,
+            label: wAnno.displayName || w.name,
+            color: wAnno.color || workloadColor(w),
+            icon: workloadIcon(w),
+            pods: pl.pods,
+            muted: SYSTEM_NS.has(w.namespace),
+            sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op },
+          });
+        });
+        items.sort((a, b) => Number(a.muted) - Number(b.muted)); // apps primero
+        nodes.push({
+          id: nid, type: "nodegroup", position: { x: 0, y: 0 },
+          data: {
+            nodeName: n.name, role: n.role, online: n.ready && c.online,
+            color: isCP ? CP_NODE : WORKER, items, onSelect: opts.onSelect,
+          },
+        });
+        sizes.set(nid, { width: 258, height: 46 + Math.max(items.length, 1) * 28 + 12 });
+        edges.push({
+          id: `e-${nid}`, source: clusterId, target: nid,
+          style: { stroke: isCP ? CP_NODE : WORKER, opacity: 0.45 },
+        });
+        layoutEdges.push({ source: clusterId, target: nid });
+      });
+      return; // fin de este clúster en vista por nodo
+    }
+
+    // ---- Vista "flujo" (por defecto) ----
     // Nodos (máquinas): control-plane + workers. Un servidor = un nodo.
     const nodeIdByName = new Map<string, string>();
     allNodes.forEach((n, j) => {
@@ -252,6 +305,7 @@ export function TopologyMap() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
+  const [view, setView] = useState<ViewMode>("flow");
   const instance = useRef<ReactFlowInstance | null>(null);
 
   const loadAnnos = async () => {
@@ -285,9 +339,9 @@ export function TopologyMap() {
   }, []);
 
   const { nodes, edges } = useMemo(() => {
-    const b = build(topo, annos);
+    const b = build(topo, annos, { view, onSelect: setSelected });
     return { nodes: layout(b.nodes, b.layoutEdges, b.sizes, "LR"), edges: b.edges };
-  }, [topo, annos]);
+  }, [topo, annos, view]);
 
   const clusterCount = topo?.clusters?.length ?? 0;
 
@@ -324,6 +378,20 @@ export function TopologyMap() {
         {!error && clusterCount === 0 && (
           <span className="hint">esperando el primer agente…</span>
         )}
+        <div className="view-toggle" role="tablist" aria-label="vista del mapa">
+          <button
+            className={view === "flow" ? "on" : ""}
+            onClick={() => setView("flow")}
+          >
+            Flujo
+          </button>
+          <button
+            className={view === "node" ? "on" : ""}
+            onClick={() => setView("node")}
+          >
+            Por nodo
+          </button>
+        </div>
         <button
           className={`bar-btn${showAudit ? " active" : ""}`}
           onClick={() => setShowAudit((v) => !v)}
