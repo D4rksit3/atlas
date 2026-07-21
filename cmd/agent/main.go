@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/atlasctl/atlas/internal/agent"
+	"github.com/atlasctl/atlas/internal/mtls"
 	"github.com/atlasctl/atlas/pkg/api"
 )
 
@@ -25,6 +26,9 @@ func main() {
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "ruta al kubeconfig (modo kube; vacío = in-cluster o ~/.kube/config)")
 	linksMode := flag.String("links", envOr("ATLAS_LINKS", "none"), "none | hubble (conexiones reales entre servicios vía Cilium/Hubble)")
 	hubbleServer := flag.String("hubble-server", envOr("ATLAS_HUBBLE_SERVER", "hubble-relay.kube-system:80"), "dirección de hubble-relay (modo links=hubble)")
+	tlsCert := flag.String("tls-cert", os.Getenv("ATLAS_TLS_CERT"), "certificado de cliente del agente (activa mTLS con --tls-key y --tls-ca)")
+	tlsKey := flag.String("tls-key", os.Getenv("ATLAS_TLS_KEY"), "clave privada del agente")
+	tlsCA := flag.String("tls-ca", os.Getenv("ATLAS_TLS_CA"), "CA para verificar el certificado del control plane")
 	workers := flag.Int("sample-workers", 3, "nº de nodos worker en el colector de ejemplo")
 	flag.Parse()
 
@@ -38,6 +42,21 @@ func main() {
 		ClusterID:       id,
 		Name:            *name,
 		Provider:        api.Provider(*provider),
+	}
+
+	// mTLS opcional: si se dan los tres ficheros, el agente presenta su certificado
+	// de cliente y verifica el del control plane. Requiere una URL https://.
+	mtlsOn := *tlsCert != "" && *tlsKey != "" && *tlsCA != ""
+	if !mtlsOn && (*tlsCert != "" || *tlsKey != "" || *tlsCA != "") {
+		log.Fatalf("para mTLS hacen falta los tres: --tls-cert, --tls-key y --tls-ca")
+	}
+	if mtlsOn {
+		tlsCfg, err := mtls.ClientTLSConfig(*tlsCert, *tlsKey, *tlsCA)
+		if err != nil {
+			log.Fatalf("configurando mTLS: %v", err)
+		}
+		cfg.TLSConfig = tlsCfg
+		log.Printf("mTLS activo: presento certificado de cliente y verifico el servidor")
 	}
 
 	// Selección de colector: 'kube' lee un clúster real; 'sample' datos ficticios.

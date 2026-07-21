@@ -87,6 +87,17 @@ y ajusta el `host`. Recomendado:
   persistencia, mételo detrás de Postgres (fase 2) antes de subir réplicas.
 - **CORS**: en `deploy/controlplane.yaml`, fija `ATLAS_CORS_ORIGIN` al origen de
   tu GUI en vez de `*`.
-- **Seguridad**: hoy el token de sesión es un placeholder. Antes de exponerlo de
-  verdad, añade **mTLS** entre agente y control plane (ver [SECURITY.md](../SECURITY.md)).
+- **mTLS**: activa la autenticación por certificado entre agente y control plane
+  (ver [SECURITY.md](../SECURITY.md#mtls-agente--control-plane-implementado)).
+  In-cluster: genera la PKI con `make certs`, crea Secrets y móntalos:
+
+  ```bash
+  kubectl -n atlas-system create secret generic atlas-cp-tls \
+    --from-file=certs/server.crt --from-file=certs/server.key --from-file=certs/ca.crt
+  kubectl -n atlas-system create secret generic atlas-agent-tls \
+    --from-file=certs/agent.crt --from-file=certs/agent.key --from-file=certs/ca.crt
+  ```
+
+  Luego monta cada Secret y pasa `--tls-cert/--tls-key/--tls-client-ca` (control
+  plane) y `--tls-cert/--tls-key/--tls-ca` (agente), con la URL en `https://`.
 - Los pods corren **no-root**, con `readOnlyRootFilesystem` y `cap drop ALL`.

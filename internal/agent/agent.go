@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,10 +19,13 @@ var Version = "0.1.0-dev"
 
 // Config parametriza el agente.
 type Config struct {
-	ControlPlaneURL string       // ej. http://localhost:8080
+	ControlPlaneURL string       // ej. http://localhost:8080 o https://... con mTLS
 	ClusterID       string       // identificador estable del clúster
 	Name            string       // nombre legible
 	Provider        api.Provider // onprem | aws | oci
+	// TLSConfig, si no es nil, activa mTLS: el agente presenta su certificado de
+	// cliente y verifica el del control plane. Va con una URL https://.
+	TLSConfig *tls.Config
 }
 
 // Agent marca hacia casa: se registra y luego late periódicamente. NUNCA abre
@@ -37,10 +41,14 @@ type Agent struct {
 
 // New construye un agente con un colector dado.
 func New(cfg Config, collector Collector) *Agent {
+	client := &http.Client{Timeout: 10 * time.Second}
+	if cfg.TLSConfig != nil {
+		client.Transport = &http.Transport{TLSClientConfig: cfg.TLSConfig}
+	}
 	return &Agent{
 		cfg:       cfg,
 		collector: collector,
-		http:      &http.Client{Timeout: 10 * time.Second},
+		http:      client,
 		interval:  10 * time.Second,
 	}
 }

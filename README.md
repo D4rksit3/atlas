@@ -94,8 +94,17 @@ Registro estructurado de cada petición (método, ruta, latencia) por stdout.
 ## Seguridad
 
 Lee **[SECURITY.md](SECURITY.md)**: modelo de amenazas, qué ya está bien y qué
-falta antes de exponerlo (mTLS, TLS, OIDC en la GUI, fijar CORS). El CI incluye
-`govulncheck`. **No lo expongas a internet en fase de scaffolding.**
+falta. El agente y el control plane hablan por **mTLS** (TLS 1.3, certificado
+por agente verificado contra la CA de Atlas):
+
+```bash
+make certs        # genera CA + certificado de servidor + uno de agente en ./certs
+make test-mtls    # verifica E2E: sin cert → rechazado, cert impostor → rechazado, válido → registra
+```
+
+Sin certificados, el control plane arranca en HTTP (solo desarrollo). Falta
+todavía OIDC/RBAC en la GUI y fijar CORS. El CI incluye `govulncheck`.
+**No lo expongas a internet sin completar la lista de SECURITY.md.**
 
 ## La API (contrato)
 

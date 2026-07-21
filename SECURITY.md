@@ -16,8 +16,8 @@ entornos que administrar.
 
 | Aspecto | Estado | Qué falta para producción |
 |---|---|---|
-| Identidad del agente | ⚠️ token de sesión en texto | **mTLS** con certificados por agente y rotación |
-| Transporte | ⚠️ HTTP | **TLS** obligatorio (o mTLS) extremo a extremo |
+| Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | rotación/expiración corta y revocación (CRL/OCSP) |
+| Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
 | AuthN/AuthZ de la GUI | ❌ ninguna | OIDC/SSO + RBAC por usuario |
 | CORS | `*` por defecto | fija el origen: `--cors-origin https://tu-gui` |
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
@@ -25,16 +25,39 @@ entornos que administrar.
 | Contenedores | ✅ distroless, no-root | escaneo de imágenes en CI (Trivy) |
 | Secretos | ❌ no hay gestión | integrar con Secret manager / SOPS |
 
+## mTLS agente ↔ control plane (implementado)
+
+El agente presenta un **certificado de cliente** firmado por la CA de Atlas; el
+control plane lo **exige y lo verifica** (`RequireAndVerifyClientCert`, TLS 1.3).
+A la vez el agente verifica el certificado del servidor. Genera la PKI con la
+herramienta incluida (sin dependencias):
+
+```bash
+make certs                                   # CA + servidor(localhost) + un agente
+# o a mano:
+go run ./cmd/atlas-certs bundle --out certs --hosts atlas-cp.example.com
+go run ./cmd/atlas-certs client --out certs --name prod-eks   # un cert por agente
+
+# control plane:
+controlplane --tls-cert certs/server.crt --tls-key certs/server.key --tls-client-ca certs/ca.crt
+# agente:
+agent --control-plane https://atlas-cp.example.com \
+  --tls-cert certs/prod-eks.crt --tls-key certs/prod-eks.key --tls-ca certs/ca.crt
+```
+
+Verificado E2E (`make test-mtls`): sin certificado → rechazado; certificado de
+otra CA → rechazado; certificado válido → registra. **Pendiente:** rotación con
+expiración corta y revocación (CRL/OCSP); hoy los certs de hoja duran 1 año.
+
 ## Cómo endurecerlo (orden recomendado)
 
-1. **TLS ya**: pon el control plane detrás de TLS antes de exponerlo.
-2. **mTLS agente↔control plane**: sustituye el token por certificados de
-   cliente; el token de hoy es un marcador de posición de sesión, no una
-   credencial fuerte.
-3. **AuthN de la GUI**: OIDC (p. ej. con tu IdP corporativo) + RBAC.
-4. **Fija CORS** al dominio real de la GUI.
-5. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
+1. ✅ **mTLS agente↔control plane** — hecho (ver arriba). El token sigue como
+   defensa en profundidad, pero la identidad fuerte es el certificado.
+2. **AuthN de la GUI**: OIDC (p. ej. con tu IdP corporativo) + RBAC.
+3. **Fija CORS** al dominio real de la GUI.
+4. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
    código (ya está en CI) en cada PR.
+5. **Rotación de certificados**: expiración corta + emisión automática.
 
 ## Reportar una vulnerabilidad
 

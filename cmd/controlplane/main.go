@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/atlasctl/atlas/internal/controlplane"
+	"github.com/atlasctl/atlas/internal/mtls"
 )
 
 func main() {
@@ -20,6 +21,9 @@ func main() {
 	heartbeat := flag.Int("heartbeat", 10, "segundos entre latidos que se piden al agente")
 	offline := flag.Duration("offline-after", 30*time.Second, "tiempo sin latidos para marcar un clúster offline")
 	corsOrigin := flag.String("cors-origin", envOr("ATLAS_CORS_ORIGIN", "*"), "origen permitido para la GUI (usa el dominio concreto en producción)")
+	tlsCert := flag.String("tls-cert", os.Getenv("ATLAS_TLS_CERT"), "certificado del servidor (activa mTLS junto con --tls-key y --tls-client-ca)")
+	tlsKey := flag.String("tls-key", os.Getenv("ATLAS_TLS_KEY"), "clave privada del servidor")
+	tlsClientCA := flag.String("tls-client-ca", os.Getenv("ATLAS_TLS_CLIENT_CA"), "CA que firma los certificados de los agentes (para verificarlos)")
 	flag.Parse()
 
 	store := controlplane.NewStore(*offline)
@@ -32,9 +36,31 @@ func main() {
 		WriteTimeout:      15 * time.Second,
 	}
 
+	// mTLS opcional: si se dan los tres ficheros, exigimos certificado de cliente
+	// válido a cada agente. Sin ellos, HTTP plano (solo para desarrollo local).
+	mtlsOn := *tlsCert != "" && *tlsKey != "" && *tlsClientCA != ""
+	if !mtlsOn && (*tlsCert != "" || *tlsKey != "" || *tlsClientCA != "") {
+		log.Fatalf("para mTLS hacen falta los tres: --tls-cert, --tls-key y --tls-client-ca")
+	}
+	if mtlsOn {
+		tlsCfg, err := mtls.ServerTLSConfig(*tlsCert, *tlsKey, *tlsClientCA)
+		if err != nil {
+			log.Fatalf("configurando mTLS: %v", err)
+		}
+		httpServer.TLSConfig = tlsCfg
+	}
+
 	// Arranque en goroutine para poder hacer shutdown ordenado.
 	go func() {
-		log.Printf("control plane escuchando en %s", *addr)
+		if mtlsOn {
+			log.Printf("control plane escuchando en %s (mTLS: se exige certificado de cliente)", *addr)
+			// Los certs ya están en TLSConfig; ListenAndServeTLS admite rutas vacías.
+			if err := httpServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("servidor caído: %v", err)
+			}
+			return
+		}
+		log.Printf("control plane escuchando en %s (HTTP, sin mTLS — solo desarrollo)", *addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("servidor caído: %v", err)
 		}

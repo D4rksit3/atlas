@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -42,6 +42,12 @@ test-hubble: ## E2E: kind+Cilium+Hubble y verifica los enlaces reales del mapa (
 
 test-deploy: ## E2E: despliega Atlas DENTRO de kind (control plane+GUI+agente) y verifica el circuito
 	./scripts/test-deploy.sh
+
+test-mtls: ## E2E: verifica el mTLS agente↔control plane (no necesita clúster)
+	./scripts/test-mtls.sh
+
+certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
+	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1
 
 vet: ## go vet
 	go vet ./...
