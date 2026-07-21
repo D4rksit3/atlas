@@ -23,7 +23,10 @@ type MemStore struct {
 	mu           sync.RWMutex
 	clusters     map[string]*clusterState
 	offlineAfter time.Duration
+	audit        []api.AuditEntry // rastro de auditoría (más antiguo primero)
 }
+
+const maxAudit = 1000 // tope del registro en memoria
 
 // NewMemStore crea un registro vacío. offlineAfter es el tiempo sin latidos tras
 // el cual un clúster se marca como offline.
@@ -31,6 +34,14 @@ func NewMemStore(offlineAfter time.Duration) *MemStore {
 	return &MemStore{
 		clusters:     make(map[string]*clusterState),
 		offlineAfter: offlineAfter,
+	}
+}
+
+// appendAudit añade una entrada (requiere el lock tomado por el llamador).
+func (s *MemStore) appendAudit(e api.AuditEntry) {
+	s.audit = append(s.audit, e)
+	if len(s.audit) > maxAudit {
+		s.audit = s.audit[len(s.audit)-maxAudit:]
 	}
 }
 
@@ -96,7 +107,7 @@ func (s *MemStore) Topology(now time.Time) (api.Topology, error) {
 	return out, nil
 }
 
-func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, now time.Time) (api.Action, error) {
+func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, actor string, now time.Time) (api.Action, error) {
 	if err := validActionRequest(req); err != nil {
 		return api.Action{}, fmt.Errorf("%w: %v", ErrBadAction, err)
 	}
@@ -109,9 +120,14 @@ func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, now ti
 	a := api.Action{
 		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
 		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
-		Status: api.ActionPending, CreatedAt: now, UpdatedAt: now,
+		Status: api.ActionPending, RequestedBy: actor, CreatedAt: now, UpdatedAt: now,
 	}
 	cs.actions = append(cs.actions, a)
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditRequested,
+		Cluster: clusterID, Namespace: a.Namespace, Workload: a.Workload,
+		Summary: summarize(a), Outcome: api.ActionPending,
+	})
 	return a, nil
 }
 
@@ -149,13 +165,21 @@ func (s *MemStore) RecordResults(clusterID string, results []api.ActionResult, n
 	}
 	for i := range cs.actions {
 		if r, ok := byID[cs.actions[i].ID]; ok {
+			outcome := api.ActionDone
 			if r.OK {
 				cs.actions[i].Status = api.ActionDone
 			} else {
 				cs.actions[i].Status = api.ActionError
 				cs.actions[i].Error = r.Error
+				outcome = api.ActionError
 			}
 			cs.actions[i].UpdatedAt = now
+			s.appendAudit(api.AuditEntry{
+				ID: newActionID(), Time: now, Actor: cs.actions[i].RequestedBy,
+				Event: api.AuditExecuted, Cluster: clusterID,
+				Namespace: cs.actions[i].Namespace, Workload: cs.actions[i].Workload,
+				Summary: summarize(cs.actions[i]), Outcome: outcome, Error: r.Error,
+			})
 		}
 	}
 	return nil
@@ -170,5 +194,20 @@ func (s *MemStore) ListActions(clusterID string) ([]api.Action, error) {
 	}
 	out := make([]api.Action, len(cs.actions))
 	copy(out, cs.actions)
+	return out, nil
+}
+
+func (s *MemStore) ListAudit(limit int) ([]api.AuditEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := len(s.audit)
+	if limit <= 0 || limit > n {
+		limit = n
+	}
+	// Devuelve las últimas 'limit', más recientes primero.
+	out := make([]api.AuditEntry, 0, limit)
+	for i := n - 1; i >= n-limit; i-- {
+		out = append(out, s.audit[i])
+	}
 	return out, nil
 }

@@ -19,7 +19,8 @@ entornos que administrar.
 | Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | rotación/expiración corta y revocación (CRL/OCSP) |
 | Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
 | AuthN/AuthZ de la GUI | ✅ **OIDC (PKCE) + RBAC** (viewer/operator) | grupos anidados, sesión/refresh, auditoría |
-| Endpoints de acción (escalar/reiniciar) | ✅ protegidos: exigen rol **operator** | registro de auditoría de quién hizo qué |
+| Endpoints de acción (escalar/reiniciar) | ✅ protegidos: exigen rol **operator** | — |
+| Auditoría | ✅ **rastro de quién hizo qué** (solicitó/ejecutó, con resultado) | exportar a un SIEM; inmutabilidad |
 | CORS | `*` por defecto | fija el origen: `--cors-origin https://tu-gui` |
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
 | Timeouts del servidor | ✅ read/write | añadir rate-limiting por agente |
@@ -57,8 +58,11 @@ expiración corta y revocación (CRL/OCSP); hoy los certs de hoja duran 1 año.
 2. ✅ **AuthN de la GUI + proteger las acciones** — hecho: OIDC (Authorization
    Code + PKCE) + RBAC (viewer/operator). Los endpoints de acción exigen rol
    `operator`. Configura `--oidc-issuer/--oidc-client-id/--rbac-operators`.
-   Verificado E2E con `make test-oidc`. Pendiente: refresh de sesión, grupos
-   anidados y **registro de auditoría** (quién ejecutó cada acción).
+   Verificado E2E con `make test-oidc`.
+3. ✅ **Registro de auditoría** — hecho: cada acción deja rastro de quién la
+   solicitó y su resultado (`GET /v1/audit`, panel "Actividad" en la GUI).
+   Verificado con `make test-audit`. Pendiente: refresh de sesión, grupos
+   anidados, exportar la auditoría a un SIEM.
 3. **Fija CORS** al dominio real de la GUI.
 4. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
    código (ya está en CI) en cada PR.

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/atlasctl/atlas/pkg/api"
@@ -32,17 +33,32 @@ type Store interface {
 	Topology(now time.Time) (api.Topology, error)
 
 	// EnqueueAction encola una acción para un clúster (devuelve ErrUnknownCluster
-	// si no existe). La acción queda 'pending' hasta que un latido la recoja.
-	EnqueueAction(clusterID string, req api.ActionRequest, now time.Time) (api.Action, error)
+	// si no existe). actor es el usuario que la pide (para auditoría). La acción
+	// queda 'pending' hasta que un latido la recoja.
+	EnqueueAction(clusterID string, req api.ActionRequest, actor string, now time.Time) (api.Action, error)
 	// TakeActions devuelve las acciones pendientes de un clúster y las marca como
 	// 'dispatched' (entregadas). El agente las recibe en la respuesta del latido.
 	TakeActions(clusterID string, now time.Time) ([]api.Action, error)
 	// RecordResults actualiza el estado de las acciones según lo que reportó el
-	// agente (done/error).
+	// agente (done/error) y deja constancia en la auditoría.
 	RecordResults(clusterID string, results []api.ActionResult, now time.Time) error
 	// ListActions devuelve el historial reciente de acciones de un clúster (para
 	// que la GUI muestre su estado).
 	ListActions(clusterID string) ([]api.Action, error)
+	// ListAudit devuelve las últimas entradas de auditoría (más recientes primero).
+	ListAudit(limit int) ([]api.AuditEntry, error)
+}
+
+// summarize describe una acción en lenguaje humano para la auditoría.
+func summarize(a api.Action) string {
+	switch a.Kind {
+	case api.ActionScale:
+		return fmt.Sprintf("escalar %s/%s a %d réplicas", a.Namespace, a.Workload, a.Replicas)
+	case api.ActionRestart:
+		return fmt.Sprintf("reiniciar %s/%s", a.Namespace, a.Workload)
+	default:
+		return a.Kind + " " + a.Namespace + "/" + a.Workload
+	}
 }
 
 func newToken() string {

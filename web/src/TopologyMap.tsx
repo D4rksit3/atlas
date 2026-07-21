@@ -18,6 +18,7 @@ import { ServiceNode, type ServiceNodeData, type WorkloadOp } from "./ServiceNod
 import { providerColor, providerLabel, type IconKey } from "./icons";
 import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 import { Inspector } from "./Inspector";
+import { AuditPanel } from "./AuditPanel";
 
 const nodeTypes = { service: ServiceNode };
 const POLL_MS = 5000;
@@ -220,6 +221,7 @@ export function TopologyMap() {
   const [topo, setTopo] = useState<Topology | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<WorkloadOp | null>(null);
+  const [showAudit, setShowAudit] = useState(false);
   const instance = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -282,6 +284,12 @@ export function TopologyMap() {
         {!error && clusterCount === 0 && (
           <span className="hint">esperando el primer agente…</span>
         )}
+        <button
+          className={`bar-btn${showAudit ? " active" : ""}`}
+          onClick={() => setShowAudit((v) => !v)}
+        >
+          Actividad
+        </button>
       </div>
       <div className="map-canvas">
         <ReactFlow
@@ -304,6 +312,7 @@ export function TopologyMap() {
         {selected && (
           <Inspector op={selected} onClose={() => setSelected(null)} />
         )}
+        {showAudit && <AuditPanel onClose={() => setShowAudit(false)} />}
       </div>
     </div>
   );

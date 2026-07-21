@@ -99,6 +99,13 @@ protegen los endpoints de la GUI; los del agente ya usan **mTLS**. Verificado E2
 (`make test-oidc`, con un IdP de prueba): sin token → 401; viewer → lee pero no
 opera (403); operator → opera (202); y el login PKCE completo en el navegador.
 
+### Auditoría
+
+Cada acción deja **rastro de quién la solicitó y su resultado**. El panel
+**Actividad** de la GUI (y `GET /v1/audit`) muestra las entradas
+(`solicitó`/`ejecutó`, con `ok`/`error`), atribuidas al usuario OIDC. Verificado
+con `make test-audit`.
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de

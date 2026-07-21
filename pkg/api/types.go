@@ -120,8 +120,31 @@ type Action struct {
 	Replicas     int       `json:"replicas"`
 	Status       string    `json:"status"`
 	Error        string    `json:"error,omitempty"`
+	RequestedBy  string    `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// ---- Auditoría: rastro de quién hizo qué ----
+
+// Eventos de auditoría.
+const (
+	AuditRequested = "action.requested" // un usuario encoló una acción
+	AuditExecuted  = "action.executed"  // el agente la ejecutó (ok/error)
+)
+
+// AuditEntry es una línea del registro de auditoría.
+type AuditEntry struct {
+	ID        string    `json:"id"`
+	Time      time.Time `json:"time"`
+	Actor     string    `json:"actor"` // email del usuario (o "dev" sin auth)
+	Event     string    `json:"event"`
+	Cluster   string    `json:"cluster"`
+	Namespace string    `json:"namespace"`
+	Workload  string    `json:"workload"`
+	Summary   string    `json:"summary"` // "escalar web a 8", "reiniciar api"
+	Outcome   string    `json:"outcome"` // pending | ok | error
+	Error     string    `json:"error,omitempty"`
 }
 
 // ActionResult lo reporta el agente tras intentar ejecutar una acción.

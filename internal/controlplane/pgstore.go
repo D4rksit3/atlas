@@ -40,10 +40,24 @@ CREATE TABLE IF NOT EXISTS actions (
     replicas      INT         NOT NULL DEFAULT 0,
     status        TEXT        NOT NULL,
     error         TEXT        NOT NULL DEFAULT '',
+    requested_by  TEXT        NOT NULL DEFAULT '',
     created_at    TIMESTAMPTZ NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL
 );
-CREATE INDEX IF NOT EXISTS actions_cluster_status ON actions(cluster_id, status);`
+CREATE INDEX IF NOT EXISTS actions_cluster_status ON actions(cluster_id, status);
+CREATE TABLE IF NOT EXISTS audit (
+    id         TEXT PRIMARY KEY,
+    ts         TIMESTAMPTZ NOT NULL,
+    actor      TEXT        NOT NULL DEFAULT '',
+    event      TEXT        NOT NULL,
+    cluster_id TEXT        NOT NULL,
+    namespace  TEXT        NOT NULL DEFAULT '',
+    workload   TEXT        NOT NULL DEFAULT '',
+    summary    TEXT        NOT NULL DEFAULT '',
+    outcome    TEXT        NOT NULL DEFAULT '',
+    error      TEXT        NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts DESC);`
 
 // NewPgStore conecta a Postgres (DSN estilo postgres://user:pass@host:port/db) y
 // crea la tabla si no existe. offlineAfter es el umbral para marcar offline.
@@ -156,7 +170,7 @@ func (s *PgStore) Topology(now time.Time) (api.Topology, error) {
 	return out, nil
 }
 
-func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, now time.Time) (api.Action, error) {
+func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, actor string, now time.Time) (api.Action, error) {
 	if err := validActionRequest(req); err != nil {
 		return api.Action{}, fmt.Errorf("%w: %v", ErrBadAction, err)
 	}
@@ -173,16 +187,32 @@ func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, now tim
 	a := api.Action{
 		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
 		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
-		Status: api.ActionPending, CreatedAt: now, UpdatedAt: now,
+		Status: api.ActionPending, RequestedBy: actor, CreatedAt: now, UpdatedAt: now,
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO actions (id, cluster_id, kind, namespace, workload, workload_kind, replicas, status, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
-		a.ID, clusterID, a.Kind, a.Namespace, a.Workload, a.WorkloadKind, a.Replicas, a.Status, now)
+		INSERT INTO actions (id, cluster_id, kind, namespace, workload, workload_kind, replicas, status, requested_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)`,
+		a.ID, clusterID, a.Kind, a.Namespace, a.Workload, a.WorkloadKind, a.Replicas, a.Status, actor, now)
 	if err != nil {
 		return api.Action{}, fmt.Errorf("encolando acción: %w", err)
 	}
+	s.insertAudit(ctx, api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditRequested,
+		Cluster: clusterID, Namespace: a.Namespace, Workload: a.Workload,
+		Summary: summarize(a), Outcome: api.ActionPending,
+	})
 	return a, nil
+}
+
+func (s *PgStore) insertAudit(ctx context.Context, e api.AuditEntry) {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO audit (id, ts, actor, event, cluster_id, namespace, workload, summary, outcome, error)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		e.ID, e.Time, e.Actor, e.Event, e.Cluster, e.Namespace, e.Workload, e.Summary, e.Outcome, e.Error)
+	if err != nil {
+		// La auditoría es best-effort: no rompas la operación si falla el insert.
+		fmt.Printf("aviso: no pude escribir auditoría: %v\n", err)
+	}
 }
 
 func (s *PgStore) TakeActions(clusterID string, now time.Time) ([]api.Action, error) {
@@ -208,18 +238,55 @@ func (s *PgStore) RecordResults(clusterID string, results []api.ActionResult, no
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, r := range results {
-		status, errMsg := api.ActionDone, ""
+		status, errMsg, outcome := api.ActionDone, "", api.ActionDone
 		if !r.OK {
-			status, errMsg = api.ActionError, r.Error
+			status, errMsg, outcome = api.ActionError, r.Error, api.ActionError
 		}
-		if _, err := s.pool.Exec(ctx, `
+		var a api.Action
+		err := s.pool.QueryRow(ctx, `
 			UPDATE actions SET status = $3, error = $4, updated_at = $5
-			WHERE cluster_id = $1 AND id = $2`,
-			clusterID, r.ID, status, errMsg, now); err != nil {
+			WHERE cluster_id = $1 AND id = $2
+			RETURNING kind, namespace, workload, replicas, requested_by`,
+			clusterID, r.ID, status, errMsg, now).Scan(
+			&a.Kind, &a.Namespace, &a.Workload, &a.Replicas, &a.RequestedBy)
+		if err == pgx.ErrNoRows {
+			continue // resultado de una acción que ya no existe
+		}
+		if err != nil {
 			return fmt.Errorf("registrando resultado de %s: %w", r.ID, err)
 		}
+		s.insertAudit(ctx, api.AuditEntry{
+			ID: newActionID(), Time: now, Actor: a.RequestedBy, Event: api.AuditExecuted,
+			Cluster: clusterID, Namespace: a.Namespace, Workload: a.Workload,
+			Summary: summarize(a), Outcome: outcome, Error: errMsg,
+		})
 	}
 	return nil
+}
+
+func (s *PgStore) ListAudit(limit int) ([]api.AuditEntry, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, ts, actor, event, cluster_id, namespace, workload, summary, outcome, error
+		FROM audit ORDER BY ts DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("leyendo auditoría: %w", err)
+	}
+	defer rows.Close()
+	var out []api.AuditEntry
+	for rows.Next() {
+		var e api.AuditEntry
+		if err := rows.Scan(&e.ID, &e.Time, &e.Actor, &e.Event, &e.Cluster,
+			&e.Namespace, &e.Workload, &e.Summary, &e.Outcome, &e.Error); err != nil {
+			return nil, fmt.Errorf("escaneando auditoría: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 func (s *PgStore) ListActions(clusterID string) ([]api.Action, error) {

@@ -58,6 +58,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/topology", s.guard(auth.RoleViewer, s.handleTopology))
 	mux.Handle("GET /v1/clusters/{id}/actions", s.guard(auth.RoleViewer, s.handleListActions))
 	mux.Handle("POST /v1/clusters/{id}/actions", s.guard(auth.RoleOperator, s.handleEnqueueAction))
+	mux.Handle("GET /v1/audit", s.guard(auth.RoleViewer, s.handleAudit))
 	return withCORS(s.corsOrigin, s.withObservability(mux))
 }
 
@@ -152,7 +153,11 @@ func (s *Server) handleEnqueueAction(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	action, err := s.store.EnqueueAction(id, req, time.Now())
+	actor := "dev" // sin auth (desarrollo)
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		actor = u.Email
+	}
+	action, err := s.store.EnqueueAction(id, req, actor, time.Now())
 	switch {
 	case errors.Is(err, ErrUnknownCluster):
 		writeError(w, http.StatusNotFound, "clúster desconocido")
@@ -163,9 +168,22 @@ func (s *Server) handleEnqueueAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "no se pudo encolar la acción")
 	default:
 		s.metrics.Actions.Add(1)
-		log.Printf("acción encolada en %q: %s %s/%s", id, action.Kind, action.Namespace, action.Workload)
+		log.Printf("acción encolada en %q por %q: %s %s/%s", id, actor, action.Kind, action.Namespace, action.Workload)
 		writeJSON(w, http.StatusAccepted, action)
 	}
+}
+
+func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {
+	entries, err := s.store.ListAudit(200)
+	if err != nil {
+		log.Printf("leyendo auditoría: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudo leer la auditoría")
+		return
+	}
+	if entries == nil {
+		entries = []api.AuditEntry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
 }
 
 func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {

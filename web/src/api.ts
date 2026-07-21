@@ -107,6 +107,28 @@ export async function postAction(
   return (await res.json()) as Action;
 }
 
+// ---- Auditoría ----
+
+export interface AuditEntry {
+  id: string;
+  time: string;
+  actor: string;
+  event: "action.requested" | "action.executed" | string;
+  cluster: string;
+  namespace: string;
+  workload: string;
+  summary: string;
+  outcome: "pending" | "ok" | "error" | string;
+  error?: string;
+}
+
+/** Lee el registro de auditoría (más recientes primero). */
+export async function fetchAudit(): Promise<AuditEntry[]> {
+  const res = await fetch("/v1/audit", { headers: authHeaders() });
+  if (!res.ok) throw new Error(`audit HTTP ${res.status}`);
+  return (await res.json()) as AuditEntry[];
+}
+
 /** Lista las acciones recientes de un clúster (para ver su estado). */
 export async function fetchActions(clusterId: string): Promise<Action[]> {
   const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`, {
