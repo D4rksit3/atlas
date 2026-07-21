@@ -7,23 +7,26 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/atlasctl/atlas/internal/auth"
 	"github.com/atlasctl/atlas/pkg/api"
 )
 
 // Server expone la API HTTP del control plane. Dos superficies:
-//   - agente -> control plane: /v1/agents/*  (el agente siempre inicia)
-//   - GUI    -> control plane: /v1/topology
+//   - agente -> control plane: /v1/agents/*  (autenticado por mTLS)
+//   - GUI    -> control plane: /v1/topology, /v1/clusters/*  (autenticado por OIDC)
 type Server struct {
 	store             Store
 	heartbeatInterval int
 	metrics           *Metrics
 	corsOrigin        string
+	auth              *auth.Authenticator // nil = auth deshabilitada (desarrollo)
 }
 
 // NewServer construye el servidor. heartbeatInterval son los segundos que se
 // le indican al agente entre latidos. corsOrigin es el origen permitido para la
-// GUI ("*" en desarrollo; restríngelo en producción).
-func NewServer(store Store, heartbeatInterval int, corsOrigin string) *Server {
+// GUI ("*" en desarrollo; restríngelo en producción). authn puede ser nil (sin
+// autenticación, solo desarrollo).
+func NewServer(store Store, heartbeatInterval int, corsOrigin string, authn *auth.Authenticator) *Server {
 	if corsOrigin == "" {
 		corsOrigin = "*"
 	}
@@ -32,6 +35,7 @@ func NewServer(store Store, heartbeatInterval int, corsOrigin string) *Server {
 		heartbeatInterval: heartbeatInterval,
 		metrics:           NewMetrics(),
 		corsOrigin:        corsOrigin,
+		auth:              authn,
 	}
 }
 
@@ -42,13 +46,36 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)  // liveness
 	mux.HandleFunc("GET /readyz", s.handleHealth)   // readiness
 	mux.HandleFunc("GET /metrics", s.handleMetrics) // Prometheus
+	// Endpoints del AGENTE: autenticados por mTLS, no por OIDC.
 	mux.HandleFunc("POST /v1/agents/register", s.handleRegister)
 	mux.HandleFunc("POST /v1/agents/{id}/heartbeat", s.handleHeartbeat)
-	mux.HandleFunc("GET /v1/topology", s.handleTopology)
-	// Acciones: la GUI encola, el agente ejecuta.
-	mux.HandleFunc("POST /v1/clusters/{id}/actions", s.handleEnqueueAction)
-	mux.HandleFunc("GET /v1/clusters/{id}/actions", s.handleListActions)
+
+	// Config pública para que la GUI sepa si debe pedir login y contra qué IdP.
+	mux.HandleFunc("GET /v1/authconfig", s.handleAuthConfig)
+
+	// Endpoints de la GUI: protegidos por OIDC + RBAC (si la auth está activa).
+	//   leer topología / acciones -> viewer;  encolar acciones -> operator.
+	mux.Handle("GET /v1/topology", s.guard(auth.RoleViewer, s.handleTopology))
+	mux.Handle("GET /v1/clusters/{id}/actions", s.guard(auth.RoleViewer, s.handleListActions))
+	mux.Handle("POST /v1/clusters/{id}/actions", s.guard(auth.RoleOperator, s.handleEnqueueAction))
 	return withCORS(s.corsOrigin, s.withObservability(mux))
+}
+
+// guard envuelve un handler con la comprobación de rol si la auth está activa;
+// sin auth (desarrollo) lo deja pasar tal cual.
+func (s *Server) guard(minRole string, h http.HandlerFunc) http.Handler {
+	if s.auth == nil {
+		return h
+	}
+	return s.auth.Require(minRole, h)
+}
+
+func (s *Server) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {
+	if s.auth == nil {
+		writeJSON(w, http.StatusOK, map[string]bool{"enabled": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.auth.PublicConfig())
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -200,7 +227,7 @@ func withCORS(origin string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

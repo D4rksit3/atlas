@@ -56,6 +56,14 @@ spec:
             #   value: "postgres"
             # - name: ATLAS_POSTGRES_DSN
             #   valueFrom: { secretKeyRef: { name: atlas-pg, key: dsn } }
+            # Auth de la GUI (OIDC + RBAC). Sin esto, la GUI NO pide login (dev).
+            # Descomenta y apunta a tu IdP; 'operators' = quién puede escalar/reiniciar.
+            # - name: ATLAS_OIDC_ISSUER
+            #   value: "https://tu-idp.example.com"
+            # - name: ATLAS_OIDC_CLIENT_ID
+            #   value: "atlas-gui"
+            # - name: ATLAS_RBAC_OPERATORS
+            #   value: "ops@tu-dominio.com,platform-team"
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 10

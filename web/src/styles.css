@@ -19,6 +19,33 @@ body {
 }
 
 .app { height: 100vh; display: flex; flex-direction: column; }
+.app.center { align-items: center; justify-content: center; }
+.app.muted { color: var(--muted); }
+
+/* pantalla de login */
+.login {
+  width: 320px; text-align: center; padding: 34px 28px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6);
+}
+.login-mark {
+  width: 44px; height: 44px; margin: 0 auto 14px; border-radius: 11px;
+  display: grid; place-items: center; color: #0b121d; font-size: 20px;
+  background: conic-gradient(from 210deg, #5b57e0, #12b5a5, #f0932b, #5b57e0);
+}
+.login-title { font-size: 22px; font-weight: 700; }
+.login-sub { color: var(--muted); font-size: 13px; margin: 4px 0 22px; }
+.login-btn { width: 100%; height: 42px; }
+.login-err { color: #ff9b9b; font-size: 12.5px; margin-top: 14px; }
+
+/* chip de usuario en la nav */
+.user { display: flex; align-items: center; gap: 10px; }
+.user-email { color: var(--text); font-size: 13px; }
+.user-out {
+  background: #212c3b; border: 1px solid var(--line); color: var(--muted);
+  font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+}
+.user-out:hover { color: var(--text); }
 
 .nav {
   height: 48px;

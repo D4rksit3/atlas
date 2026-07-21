@@ -91,6 +91,11 @@ y ajusta el `host`. Recomendado:
   proceso. Verificado con `make test-postgres` (multi-réplica + persistencia).
 - **CORS**: en `deploy/controlplane.yaml`, fija `ATLAS_CORS_ORIGIN` al origen de
   tu GUI en vez de `*`.
+- **Auth de la GUI (OIDC + RBAC)**: registra Atlas como aplicación en tu IdP
+  (client público, redirect_uri = URL de la GUI) y configura en el control plane
+  `ATLAS_OIDC_ISSUER`, `ATLAS_OIDC_CLIENT_ID` y `ATLAS_RBAC_OPERATORS` (ver el env
+  comentado en `deploy/controlplane.yaml`). Sin esto, **la GUI no pide login** —
+  no la expongas así. Verificado con `make test-oidc`.
 - **mTLS**: activa la autenticación por certificado entre agente y control plane
   (ver [SECURITY.md](../SECURITY.md#mtls-agente--control-plane-implementado)).
   In-cluster: genera la PKI con `make certs`, crea Secrets y móntalos:

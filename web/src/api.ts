@@ -1,7 +1,16 @@
 // Tipos espejo de pkg/api/types.go y el cliente de la API del control plane.
 // Si cambias el contrato en Go, actualiza estos tipos.
+import { getToken } from "./auth";
 
 export type Provider = "onprem" | "aws" | "oci";
+
+/** authHeaders añade el Bearer OIDC si hay sesión (si no, va sin auth: dev). */
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...(extra ?? {}) };
+  const t = getToken();
+  if (t) h["Authorization"] = `Bearer ${t}`;
+  return h;
+}
 
 export interface Node {
   name: string;
@@ -50,7 +59,7 @@ export interface Topology {
 
 /** Descarga la topología agregada desde el control plane. */
 export async function fetchTopology(): Promise<Topology> {
-  const res = await fetch("/v1/topology");
+  const res = await fetch("/v1/topology", { headers: authHeaders() });
   if (!res.ok) throw new Error(`topology HTTP ${res.status}`);
   return (await res.json()) as Topology;
 }
@@ -88,7 +97,7 @@ export async function postAction(
 ): Promise<Action> {
   const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(req),
   });
   if (!res.ok) {
@@ -100,7 +109,9 @@ export async function postAction(
 
 /** Lista las acciones recientes de un clúster (para ver su estado). */
 export async function fetchActions(clusterId: string): Promise<Action[]> {
-  const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`);
+  const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) throw new Error(`actions HTTP ${res.status}`);
   return (await res.json()) as Action[];
 }

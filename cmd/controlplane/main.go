@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/atlasctl/atlas/internal/auth"
 	"github.com/atlasctl/atlas/internal/controlplane"
 	"github.com/atlasctl/atlas/internal/mtls"
 )
@@ -26,11 +28,15 @@ func main() {
 	tlsClientCA := flag.String("tls-client-ca", os.Getenv("ATLAS_TLS_CLIENT_CA"), "CA que firma los certificados de los agentes (para verificarlos)")
 	storeKind := flag.String("store", envOr("ATLAS_STORE", "memory"), "memory (una réplica, volátil) | postgres (persistente, multi-réplica)")
 	pgDSN := flag.String("postgres-dsn", os.Getenv("ATLAS_POSTGRES_DSN"), "DSN de Postgres (postgres://user:pass@host:5432/db) para --store=postgres")
+	oidcIssuer := flag.String("oidc-issuer", os.Getenv("ATLAS_OIDC_ISSUER"), "URL del IdP OIDC (activa la auth de la GUI). Vacío = sin auth (solo desarrollo)")
+	oidcClientID := flag.String("oidc-client-id", os.Getenv("ATLAS_OIDC_CLIENT_ID"), "client id (audiencia) de la GUI en el IdP")
+	rbacOperators := flag.String("rbac-operators", os.Getenv("ATLAS_RBAC_OPERATORS"), "emails o grupos (coma-separados) que pueden OPERAR (escalar/reiniciar)")
 	flag.Parse()
 
 	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)
 	defer closeStore()
-	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin)
+	authn := buildAuth(*oidcIssuer, *oidcClientID, *rbacOperators)
+	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
 
 	httpServer := &http.Server{
 		Addr:              *addr,
@@ -105,6 +111,32 @@ func buildStore(kind, dsn string, offline time.Duration) (controlplane.Store, fu
 		log.Fatalf("store desconocido %q (usa: memory | postgres)", kind)
 		return nil, func() {}
 	}
+}
+
+// buildAuth crea el autenticador OIDC si se configuró un issuer; si no, devuelve
+// nil (auth deshabilitada, solo para desarrollo local).
+func buildAuth(issuer, clientID, operators string) *auth.Authenticator {
+	if issuer == "" {
+		log.Printf("auth: DESHABILITADA (sin --oidc-issuer) — no expongas esto a internet")
+		return nil
+	}
+	if clientID == "" {
+		log.Fatalf("--oidc-issuer requiere también --oidc-client-id")
+	}
+	var ops []string
+	for _, o := range strings.Split(operators, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			ops = append(ops, o)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	a, err := auth.New(ctx, auth.Config{Issuer: issuer, ClientID: clientID, Operators: ops})
+	if err != nil {
+		log.Fatalf("auth OIDC: %v", err)
+	}
+	log.Printf("auth: OIDC activa (issuer=%s, %d operador(es))", issuer, len(ops))
+	return a
 }
 
 func envOr(key, def string) string {
