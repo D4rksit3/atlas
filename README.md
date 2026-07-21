@@ -137,14 +137,16 @@ por categorías, instalables con un clic (o **instalado ✓** si Atlas los detec
 | GitOps | **Argo CD** | manifiesto |
 | Seguridad | **Kyverno** (políticas) · **Falco** (runtime eBPF) | manifiesto · **Helm** |
 | Redes | **MetalLB** (LoadBalancer) | manifiesto |
-| Monitoreo | **Metrics Server** | manifiesto |
+| Monitoreo | **Metrics Server** · **Prometheus + Grafana** (kube-prometheus-stack) | manifiesto · **Helm** |
 
 Dos formas de instalar: un **manifiesto único** (server-side apply) o un **chart
 de Helm** (SDK de Helm compilado en el agente — no necesita el binario `helm`, y
 crea un *release* real). La orden viaja por el canal de acciones (auditada).
 Añadir un complemento nuevo = una entrada más en el catálogo (`pkg/api` + el
 agente). Verificado E2E: `make test-addons` (Kyverno, manifiesto) y `make
-test-helm` (Falco, Helm → crea el release y el DaemonSet).
+test-helm` (Falco, Helm → crea el release y el DaemonSet). El
+**kube-prometheus-stack** (Prometheus + Grafana + Alertmanager) usa la misma vía
+Helm y arranca completo (todos los componentes Ready).
 
 > Nota (Helm in-cluster): Helm necesita un directorio de caché escribible. Con
 > `readOnlyRootFilesystem`, monta un `emptyDir` y define `HELM_CACHE_HOME`,

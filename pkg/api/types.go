@@ -156,6 +156,8 @@ func Addons() []AddonInfo {
 			DetectWorkload: "controller", Description: "LoadBalancer para bare-metal/on-prem"},
 		{Key: "metrics-server", Name: "Metrics Server", Category: "monitoreo", Namespace: "kube-system",
 			DetectWorkload: "metrics-server", Description: "Métricas de CPU/memoria (base de monitoreo)"},
+		{Key: "kube-prometheus-stack", Name: "Prometheus + Grafana", Category: "monitoreo", Namespace: "monitoring",
+			DetectWorkload: "grafana", Description: "Monitoreo completo: Prometheus, Grafana y Alertmanager"},
 	}
 }
 

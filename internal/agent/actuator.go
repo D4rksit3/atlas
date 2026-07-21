@@ -83,6 +83,14 @@ var addons = map[string]addonSpec{
 			},
 		},
 	},
+	"kube-prometheus-stack": {
+		namespace: "monitoring",
+		helm: &helmChart{
+			repo:    "https://prometheus-community.github.io/helm-charts",
+			chart:   "kube-prometheus-stack",
+			version: "62.7.0", release: "kube-prometheus-stack",
+		},
+	},
 }
 
 // KubeActuator aplica acciones con client-go: escalar, reiniciar e instalar
@@ -129,10 +137,11 @@ func NewKubeActuator(kubeconfig string) (*KubeActuator, error) {
 
 // Execute despacha según el tipo de acción y devuelve el resultado.
 func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionResult {
-	// Instalar puede tardar (bajar el manifiesto y aplicar decenas de recursos).
+	// Instalar puede tardar (bajar el chart/manifiesto y aplicar muchos recursos;
+	// kube-prometheus-stack en particular es grande).
 	timeout := a.timeout
 	if act.Kind == api.ActionInstall {
-		timeout = 3 * time.Minute
+		timeout = 6 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
