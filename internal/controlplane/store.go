@@ -47,6 +47,24 @@ type Store interface {
 	ListActions(clusterID string) ([]api.Action, error)
 	// ListAudit devuelve las últimas entradas de auditoría (más recientes primero).
 	ListAudit(limit int) ([]api.AuditEntry, error)
+
+	// SetAnnotation guarda (o borra, si Empty) el metadato de una entidad del mapa.
+	// actor es quién lo edita (para auditoría).
+	SetAnnotation(key string, a api.Annotation, actor string, now time.Time) error
+	// Annotations devuelve todas las anotaciones por clave, para que la GUI las
+	// superponga al mapa.
+	Annotations() (map[string]api.Annotation, error)
+}
+
+// annotationSummary describe una edición del mapa para la auditoría.
+func annotationSummary(key string, a api.Annotation) string {
+	if a.Empty() {
+		return fmt.Sprintf("quitó los metadatos de %s", key)
+	}
+	if a.DisplayName != "" {
+		return fmt.Sprintf("renombró %s a %q", key, a.DisplayName)
+	}
+	return fmt.Sprintf("editó los metadatos de %s", key)
 }
 
 // summarize describe una acción en lenguaje humano para la auditoría.

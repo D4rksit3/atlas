@@ -59,6 +59,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /v1/clusters/{id}/actions", s.guard(auth.RoleViewer, s.handleListActions))
 	mux.Handle("POST /v1/clusters/{id}/actions", s.guard(auth.RoleOperator, s.handleEnqueueAction))
 	mux.Handle("GET /v1/audit", s.guard(auth.RoleViewer, s.handleAudit))
+	// Editar el mapa (metadatos): leer -> viewer; escribir -> operator.
+	mux.Handle("GET /v1/annotations", s.guard(auth.RoleViewer, s.handleListAnnotations))
+	mux.Handle("PUT /v1/annotations/{key...}", s.guard(auth.RoleOperator, s.handleSetAnnotation))
 	return withCORS(s.corsOrigin, s.withObservability(mux))
 }
 
@@ -171,6 +174,42 @@ func (s *Server) handleEnqueueAction(w http.ResponseWriter, r *http.Request) {
 		log.Printf("acción encolada en %q por %q: %s %s/%s", id, actor, action.Kind, action.Namespace, action.Workload)
 		writeJSON(w, http.StatusAccepted, action)
 	}
+}
+
+func (s *Server) handleListAnnotations(w http.ResponseWriter, _ *http.Request) {
+	annos, err := s.store.Annotations()
+	if err != nil {
+		log.Printf("leyendo anotaciones: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudieron leer las anotaciones")
+		return
+	}
+	if annos == nil {
+		annos = map[string]api.Annotation{}
+	}
+	writeJSON(w, http.StatusOK, annos)
+}
+
+func (s *Server) handleSetAnnotation(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "falta la clave de la entidad")
+		return
+	}
+	var anno api.Annotation
+	if !readJSON(w, r, &anno) {
+		return
+	}
+	actor := "dev"
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		actor = u.Email
+	}
+	if err := s.store.SetAnnotation(key, anno, actor, time.Now()); err != nil {
+		log.Printf("guardando anotación %q: %v", key, err)
+		writeError(w, http.StatusInternalServerError, "no se pudo guardar")
+		return
+	}
+	log.Printf("mapa editado por %q: %s", actor, key)
+	writeJSON(w, http.StatusOK, anno)
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, _ *http.Request) {

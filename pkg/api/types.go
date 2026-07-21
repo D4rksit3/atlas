@@ -131,6 +131,7 @@ type Action struct {
 const (
 	AuditRequested = "action.requested" // un usuario encoló una acción
 	AuditExecuted  = "action.executed"  // el agente la ejecutó (ok/error)
+	AuditMapEdited = "map.edited"       // un usuario editó metadatos del mapa
 )
 
 // AuditEntry es una línea del registro de auditoría.
@@ -152,6 +153,23 @@ type ActionResult struct {
 	ID    string `json:"id"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+}
+
+// ---- Anotaciones: metadatos editables del mapa ----
+
+// Annotation es metadato que la GUI superpone a una entidad del mapa (clúster o
+// carga). NO toca el clúster real: es solo la capa de presentación/curación.
+// La clave es estable: "clusterId" para un clúster, "clusterId/namespace/workload"
+// para una carga.
+type Annotation struct {
+	DisplayName string `json:"displayName,omitempty"` // alias que se muestra
+	Color       string `json:"color,omitempty"`       // color de acento
+	Note        string `json:"note,omitempty"`        // nota libre (dueño, etc.)
+}
+
+// Empty indica si la anotación no aporta nada (equivale a borrarla).
+func (a Annotation) Empty() bool {
+	return a.DisplayName == "" && a.Color == "" && a.Note == ""
 }
 
 // ---- Vista para la GUI (control plane -> GUI) ----

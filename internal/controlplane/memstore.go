@@ -23,7 +23,8 @@ type MemStore struct {
 	mu           sync.RWMutex
 	clusters     map[string]*clusterState
 	offlineAfter time.Duration
-	audit        []api.AuditEntry // rastro de auditoría (más antiguo primero)
+	audit        []api.AuditEntry          // rastro de auditoría (más antiguo primero)
+	annotations  map[string]api.Annotation // metadatos del mapa por clave
 }
 
 const maxAudit = 1000 // tope del registro en memoria
@@ -34,6 +35,7 @@ func NewMemStore(offlineAfter time.Duration) *MemStore {
 	return &MemStore{
 		clusters:     make(map[string]*clusterState),
 		offlineAfter: offlineAfter,
+		annotations:  make(map[string]api.Annotation),
 	}
 }
 
@@ -194,6 +196,31 @@ func (s *MemStore) ListActions(clusterID string) ([]api.Action, error) {
 	}
 	out := make([]api.Action, len(cs.actions))
 	copy(out, cs.actions)
+	return out, nil
+}
+
+func (s *MemStore) SetAnnotation(key string, a api.Annotation, actor string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a.Empty() {
+		delete(s.annotations, key)
+	} else {
+		s.annotations[key] = a
+	}
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditMapEdited,
+		Summary: annotationSummary(key, a), Outcome: api.ActionDone,
+	})
+	return nil
+}
+
+func (s *MemStore) Annotations() (map[string]api.Annotation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]api.Annotation, len(s.annotations))
+	for k, v := range s.annotations {
+		out[k] = v
+	}
 	return out, nil
 }
 

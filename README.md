@@ -106,6 +106,14 @@ Cada acción deja **rastro de quién la solicitó y su resultado**. El panel
 (`solicitó`/`ejecutó`, con `ok`/`error`), atribuidas al usuario OIDC. Verificado
 con `make test-audit`.
 
+## Editar el mapa
+
+Clic en un clúster o carga → el Inspector permite ponerle **alias**, **color** y
+**nota** (metadatos que **no tocan el clúster**, solo la presentación). Se guardan
+en el control plane (`PUT /v1/annotations/{clave}`) para que **todo el equipo vea
+lo mismo**, requieren rol **operator** y quedan **auditadas**. Verificado con
+`make test-annotations`.
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de

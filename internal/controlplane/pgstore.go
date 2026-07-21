@@ -57,7 +57,15 @@ CREATE TABLE IF NOT EXISTS audit (
     outcome    TEXT        NOT NULL DEFAULT '',
     error      TEXT        NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts DESC);`
+CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts DESC);
+CREATE TABLE IF NOT EXISTS annotations (
+    key          TEXT PRIMARY KEY,
+    display_name TEXT        NOT NULL DEFAULT '',
+    color        TEXT        NOT NULL DEFAULT '',
+    note         TEXT        NOT NULL DEFAULT '',
+    updated_by   TEXT        NOT NULL DEFAULT '',
+    updated_at   TIMESTAMPTZ NOT NULL
+);`
 
 // NewPgStore conecta a Postgres (DSN estilo postgres://user:pass@host:port/db) y
 // crea la tabla si no existe. offlineAfter es el umbral para marcar offline.
@@ -262,6 +270,52 @@ func (s *PgStore) RecordResults(clusterID string, results []api.ActionResult, no
 		})
 	}
 	return nil
+}
+
+func (s *PgStore) SetAnnotation(key string, a api.Annotation, actor string, now time.Time) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if a.Empty() {
+		if _, err := s.pool.Exec(ctx, `DELETE FROM annotations WHERE key = $1`, key); err != nil {
+			return fmt.Errorf("borrando anotación: %w", err)
+		}
+	} else {
+		_, err := s.pool.Exec(ctx, `
+			INSERT INTO annotations (key, display_name, color, note, updated_by, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (key) DO UPDATE
+			SET display_name = EXCLUDED.display_name, color = EXCLUDED.color,
+			    note = EXCLUDED.note, updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`,
+			key, a.DisplayName, a.Color, a.Note, actor, now)
+		if err != nil {
+			return fmt.Errorf("guardando anotación: %w", err)
+		}
+	}
+	s.insertAudit(ctx, api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditMapEdited,
+		Summary: annotationSummary(key, a), Outcome: api.ActionDone,
+	})
+	return nil
+}
+
+func (s *PgStore) Annotations() (map[string]api.Annotation, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `SELECT key, display_name, color, note FROM annotations`)
+	if err != nil {
+		return nil, fmt.Errorf("leyendo anotaciones: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]api.Annotation)
+	for rows.Next() {
+		var k string
+		var a api.Annotation
+		if err := rows.Scan(&k, &a.DisplayName, &a.Color, &a.Note); err != nil {
+			return nil, fmt.Errorf("escaneando anotación: %w", err)
+		}
+		out[k] = a
+	}
+	return out, rows.Err()
 }
 
 func (s *PgStore) ListAudit(limit int) ([]api.AuditEntry, error) {

@@ -13,8 +13,18 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-import { fetchTopology, type Topology, type Workload } from "./api";
-import { ServiceNode, type ServiceNodeData, type WorkloadOp } from "./ServiceNode";
+import {
+  fetchTopology,
+  fetchAnnotations,
+  type Topology,
+  type Workload,
+  type Annotation,
+} from "./api";
+import {
+  ServiceNode,
+  type ServiceNodeData,
+  type Selection,
+} from "./ServiceNode";
 import { providerColor, providerLabel, type IconKey } from "./icons";
 import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 import { Inspector } from "./Inspector";
@@ -54,8 +64,9 @@ interface Built {
   sizes: Map<string, NodeSize>;
 }
 
-/** Convierte la topología del backend en nodos/aristas (sin posicionar todavía). */
-function build(topo: Topology | null): Built {
+/** Convierte la topología del backend en nodos/aristas (sin posicionar todavía).
+ *  `annos` son los metadatos editables que se superponen (alias, color, nota). */
+function build(topo: Topology | null, annos: Record<string, Annotation>): Built {
   const nodes: Node<ServiceNodeData>[] = [];
   const edges: Edge[] = [];
   const layoutEdges: LayoutEdge[] = [];
@@ -100,13 +111,21 @@ function build(topo: Topology | null): Built {
     const allNodes = c.snapshot?.nodes ?? [];
     const workloads = c.snapshot?.workloads ?? [];
 
+    const cAnno = annos[c.clusterId] ?? {};
     add(clusterId, {
-      label: c.name,
+      label: cAnno.displayName || c.name,
       sublabel: providerLabel[c.provider] ?? c.provider,
-      color,
+      color: cAnno.color || color,
       icon: "cluster",
       online: c.online,
       muted: !c.online,
+      hasNote: !!cAnno.note,
+      sel: {
+        key: c.clusterId,
+        title: c.name,
+        kind: "Clúster",
+        subtitle: providerLabel[c.provider] ?? c.provider,
+      },
     });
 
     // El agente marca hacia casa -> arista del clúster al control plane (visual).
@@ -153,20 +172,30 @@ function build(topo: Topology | null): Built {
     workloads.forEach((w) => {
       const id = `${clusterId}-wl-${w.namespace}-${w.name}`;
       wlId.set(w.name, id);
+      const wKey = `${c.clusterId}/${w.namespace}/${w.name}`;
+      const wAnno = annos[wKey] ?? {};
+      const op = {
+        clusterId: c.clusterId,
+        namespace: w.namespace,
+        workload: w.name,
+        workloadKind: w.kind,
+        replicas: w.replicas,
+        online: c.online,
+      };
       add(id, {
-        label: w.name,
+        label: wAnno.displayName || w.name,
         sublabel: `${w.kind} · ${w.replicas}`,
-        color: workloadColor(w),
+        color: wAnno.color || workloadColor(w),
         icon: workloadIcon(w),
         muted: !c.online || SYSTEM_NS.has(w.namespace),
-        // Operable desde el Inspector: escalar / reiniciar.
-        op: {
-          clusterId: c.clusterId,
-          namespace: w.namespace,
-          workload: w.name,
-          workloadKind: w.kind,
-          replicas: w.replicas,
-          online: c.online,
+        hasNote: !!wAnno.note,
+        op,
+        sel: {
+          key: wKey,
+          title: w.name,
+          kind: w.kind,
+          subtitle: w.namespace,
+          op,
         },
       });
       // Pertenencia al clúster (arista muy tenue) + jerarquía de layout.
@@ -219,10 +248,19 @@ function build(topo: Topology | null): Built {
 
 export function TopologyMap() {
   const [topo, setTopo] = useState<Topology | null>(null);
+  const [annos, setAnnos] = useState<Record<string, Annotation>>({});
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<WorkloadOp | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const instance = useRef<ReactFlowInstance | null>(null);
+
+  const loadAnnos = async () => {
+    try {
+      setAnnos(await fetchAnnotations());
+    } catch {
+      /* sin permiso o sin auth: seguimos sin anotaciones */
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -238,6 +276,7 @@ export function TopologyMap() {
       }
     };
     load();
+    loadAnnos();
     const id = setInterval(load, POLL_MS);
     return () => {
       alive = false;
@@ -246,9 +285,9 @@ export function TopologyMap() {
   }, []);
 
   const { nodes, edges } = useMemo(() => {
-    const b = build(topo);
+    const b = build(topo, annos);
     return { nodes: layout(b.nodes, b.layoutEdges, b.sizes, "LR"), edges: b.edges };
-  }, [topo]);
+  }, [topo, annos]);
 
   const clusterCount = topo?.clusters?.length ?? 0;
 
@@ -265,13 +304,14 @@ export function TopologyMap() {
   // Mantén fresca la carga seleccionada (réplicas/online) cuando llega topología
   // nueva, para que el Inspector refleje el resultado de una acción.
   useEffect(() => {
-    if (!selected || !topo) return;
-    const c = topo.clusters?.find((c) => c.clusterId === selected.clusterId);
+    if (!selected?.op || !topo) return;
+    const op = selected.op;
+    const c = topo.clusters?.find((c) => c.clusterId === op.clusterId);
     const w = c?.snapshot?.workloads?.find(
-      (w) => w.namespace === selected.namespace && w.name === selected.workload,
+      (w) => w.namespace === op.namespace && w.name === op.workload,
     );
-    if (c && w && (w.replicas !== selected.replicas || c.online !== selected.online)) {
-      setSelected({ ...selected, replicas: w.replicas, online: c.online });
+    if (c && w && (w.replicas !== op.replicas || c.online !== op.online)) {
+      setSelected({ ...selected, op: { ...op, replicas: w.replicas, online: c.online } });
     }
   }, [topo, selected]);
 
@@ -298,8 +338,7 @@ export function TopologyMap() {
           nodeTypes={nodeTypes}
           onInit={(inst) => (instance.current = inst)}
           onNodeClick={(_, node) => {
-            const op = (node.data as ServiceNodeData).op;
-            setSelected(op ?? null);
+            setSelected((node.data as ServiceNodeData).sel ?? null);
           }}
           onPaneClick={() => setSelected(null)}
           fitView
@@ -310,7 +349,12 @@ export function TopologyMap() {
           <Controls />
         </ReactFlow>
         {selected && (
-          <Inspector op={selected} onClose={() => setSelected(null)} />
+          <Inspector
+            sel={selected}
+            annotation={annos[selected.key] ?? {}}
+            onClose={() => setSelected(null)}
+            onSaved={loadAnnos}
+          />
         )}
         {showAudit && <AuditPanel onClose={() => setShowAudit(false)} />}
       </div>

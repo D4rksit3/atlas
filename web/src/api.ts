@@ -107,6 +107,34 @@ export async function postAction(
   return (await res.json()) as Action;
 }
 
+// ---- Anotaciones: metadatos editables del mapa ----
+
+export interface Annotation {
+  displayName?: string;
+  color?: string;
+  note?: string;
+}
+
+/** Lee todas las anotaciones (metadatos) para superponerlas al mapa. */
+export async function fetchAnnotations(): Promise<Record<string, Annotation>> {
+  const res = await fetch("/v1/annotations", { headers: authHeaders() });
+  if (!res.ok) throw new Error(`annotations HTTP ${res.status}`);
+  return (await res.json()) as Record<string, Annotation>;
+}
+
+/** Guarda (o borra, si va vacía) la anotación de una entidad del mapa. */
+export async function putAnnotation(key: string, a: Annotation): Promise<void> {
+  const res = await fetch(`/v1/annotations/${key}`, {
+    method: "PUT",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(a),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+}
+
 // ---- Auditoría ----
 
 export interface AuditEntry {
