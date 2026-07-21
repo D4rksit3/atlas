@@ -68,6 +68,25 @@ var addons = map[string]addonSpec{
 		namespace: "metallb-system",
 		url:       "https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml",
 	},
+	"ingress-nginx": {
+		namespace: "ingress-nginx",
+		helm: &helmChart{
+			repo: "https://kubernetes.github.io/ingress-nginx", chart: "ingress-nginx",
+			version: "4.11.3", release: "ingress-nginx",
+		},
+	},
+	"cert-manager": {
+		namespace: "cert-manager",
+		helm: &helmChart{
+			repo: "https://charts.jetstack.io", chart: "cert-manager",
+			version: "v1.15.3", release: "cert-manager",
+			// El chart no instala sus CRDs por defecto; sin ellas cert-manager no
+			// arranca. crds.enabled las incluye en el release (modo recomendado v1.15+).
+			values: map[string]interface{}{
+				"crds": map[string]interface{}{"enabled": true},
+			},
+		},
+	},
 	"metrics-server": {
 		namespace: "kube-system",
 		url:       "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml",
