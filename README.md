@@ -175,11 +175,10 @@ Cilium. Reprodúcelo con **`make test-hubble`** (levanta kind + Cilium + Hubble)
 ## Lo que es de verdad y lo que es andamio
 
 - **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go** (verificado E2E contra un clúster kind real — `make test-kube`). Es el esqueleto correcto.
-- **De verdad (fase 2):** el **colector Hubble** que lee las conexiones reales entre servicios desde Cilium (`--links hubble`), verificado E2E — `make test-hubble`.
+- **De verdad (fase 2):** el **colector Hubble** (`--links hubble`, `make test-hubble`); la **ubicación de pods** por nodo (`make test-kube`); el **despliegue in-cluster** (`make test-deploy`); el **mTLS** agente↔control plane (`make test-mtls`); y el **store Postgres** persistente y multi-réplica (`--store postgres`, `make test-postgres`).
 - **Andamio (TODO fase 2+):**
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
-  - El store es en memoria. Para multi-réplica y persistencia, mételo detrás de **Postgres**.
-  - Añadir **mTLS** de verdad (hoy el token es un placeholder de sesión).
+  - Falta **OIDC/RBAC en la GUI** y rotación/revocación de certificados.
 
 ## Roadmap
 

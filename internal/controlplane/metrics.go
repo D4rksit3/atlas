@@ -23,13 +23,16 @@ func NewMetrics() *Metrics { return &Metrics{} }
 
 // WriteProm escribe las métricas en texto Prometheus (v0.0.4). Combina los
 // contadores acumulados con gauges vivos calculados desde el store.
-func (m *Metrics) WriteProm(w io.Writer, store *Store) {
-	topo := store.Topology(time.Now())
-	total := len(topo.Clusters)
-	online := 0
-	for _, c := range topo.Clusters {
-		if c.Online {
-			online++
+func (m *Metrics) WriteProm(w io.Writer, store Store) {
+	total, online := 0, 0
+	// Si el store falla (p. ej. Postgres caído), emitimos los contadores igual y
+	// dejamos los gauges de clústeres en 0 en vez de romper /metrics.
+	if topo, err := store.Topology(time.Now()); err == nil {
+		total = len(topo.Clusters)
+		for _, c := range topo.Clusters {
+			if c.Online {
+				online++
+			}
 		}
 	}
 

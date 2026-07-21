@@ -83,8 +83,12 @@ y ajusta el `host`. Recomendado:
 
 ## Notas de producción
 
-- **Una sola réplica** del control plane: el store es **en memoria**. Para HA y
-  persistencia, mételo detrás de Postgres (fase 2) antes de subir réplicas.
+- **Persistencia y HA (Postgres)**: por defecto el store es **en memoria** (1
+  réplica, se pierde al reiniciar). Para persistir y escalar a varias réplicas,
+  usa Postgres: guarda el DSN en un Secret y pon `ATLAS_STORE=postgres` +
+  `ATLAS_POSTGRES_DSN` (ver el env comentado en `deploy/controlplane.yaml`).
+  Con Postgres, subir `replicas` es seguro — el estado vive en la base, no en el
+  proceso. Verificado con `make test-postgres` (multi-réplica + persistencia).
 - **CORS**: en `deploy/controlplane.yaml`, fija `ATLAS_CORS_ORIGIN` al origen de
   tu GUI en vez de `*`.
 - **mTLS**: activa la autenticación por certificado entre agente y control plane

@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -45,6 +45,9 @@ test-deploy: ## E2E: despliega Atlas DENTRO de kind (control plane+GUI+agente) y
 
 test-mtls: ## E2E: verifica el mTLS agente↔control plane (no necesita clúster)
 	./scripts/test-mtls.sh
+
+test-postgres: ## E2E: store Postgres — multi-réplica + persistencia (levanta su propio Postgres)
+	./scripts/test-postgres.sh
 
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1

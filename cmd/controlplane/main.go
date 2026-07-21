@@ -24,9 +24,12 @@ func main() {
 	tlsCert := flag.String("tls-cert", os.Getenv("ATLAS_TLS_CERT"), "certificado del servidor (activa mTLS junto con --tls-key y --tls-client-ca)")
 	tlsKey := flag.String("tls-key", os.Getenv("ATLAS_TLS_KEY"), "clave privada del servidor")
 	tlsClientCA := flag.String("tls-client-ca", os.Getenv("ATLAS_TLS_CLIENT_CA"), "CA que firma los certificados de los agentes (para verificarlos)")
+	storeKind := flag.String("store", envOr("ATLAS_STORE", "memory"), "memory (una réplica, volátil) | postgres (persistente, multi-réplica)")
+	pgDSN := flag.String("postgres-dsn", os.Getenv("ATLAS_POSTGRES_DSN"), "DSN de Postgres (postgres://user:pass@host:5432/db) para --store=postgres")
 	flag.Parse()
 
-	store := controlplane.NewStore(*offline)
+	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)
+	defer closeStore()
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin)
 
 	httpServer := &http.Server{
@@ -76,6 +79,31 @@ func main() {
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("shutdown con error: %v", err)
+	}
+}
+
+// buildStore elige el backend de almacenamiento. Devuelve el store y una función
+// de cierre (no-op para memoria; cierra el pool para Postgres).
+func buildStore(kind, dsn string, offline time.Duration) (controlplane.Store, func()) {
+	switch kind {
+	case "memory":
+		log.Printf("store: memory (una réplica, se pierde al reiniciar)")
+		return controlplane.NewMemStore(offline), func() {}
+	case "postgres":
+		if dsn == "" {
+			log.Fatalf("--store=postgres requiere --postgres-dsn (o ATLAS_POSTGRES_DSN)")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		pg, err := controlplane.NewPgStore(ctx, dsn, offline)
+		if err != nil {
+			log.Fatalf("store postgres: %v", err)
+		}
+		log.Printf("store: postgres (persistente, multi-réplica)")
+		return pg, pg.Close
+	default:
+		log.Fatalf("store desconocido %q (usa: memory | postgres)", kind)
+		return nil, func() {}
 	}
 }
 

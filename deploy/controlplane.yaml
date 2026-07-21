@@ -22,7 +22,9 @@ metadata:
   namespace: atlas-system
   labels: { app: atlas-controlplane }
 spec:
-  replicas: 1 # el store es en memoria; para >1 réplica hace falta Postgres (fase 2)
+  # Con el store en memoria (por defecto) usa 1 réplica. Con Postgres (ver env
+  # comentado abajo) el estado se comparte y puedes subir replicas sin problema.
+  replicas: 1
   selector:
     matchLabels: { app: atlas-controlplane }
   template:
@@ -46,6 +48,14 @@ spec:
             # (p. ej. https://atlas.example.com) en vez de "*".
             - name: ATLAS_CORS_ORIGIN
               value: "*"
+            # Persistencia + multi-réplica: descomenta para usar Postgres. Guarda
+            # el DSN en un Secret (no en texto plano). Crea el Secret con:
+            #   kubectl -n atlas-system create secret generic atlas-pg \
+            #     --from-literal=dsn='postgres://user:pass@host:5432/atlas'
+            # - name: ATLAS_STORE
+            #   value: "postgres"
+            # - name: ATLAS_POSTGRES_DSN
+            #   valueFrom: { secretKeyRef: { name: atlas-pg, key: dsn } }
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 10

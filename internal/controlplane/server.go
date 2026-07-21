@@ -14,7 +14,7 @@ import (
 //   - agente -> control plane: /v1/agents/*  (el agente siempre inicia)
 //   - GUI    -> control plane: /v1/topology
 type Server struct {
-	store             *Store
+	store             Store
 	heartbeatInterval int
 	metrics           *Metrics
 	corsOrigin        string
@@ -23,7 +23,7 @@ type Server struct {
 // NewServer construye el servidor. heartbeatInterval son los segundos que se
 // le indican al agente entre latidos. corsOrigin es el origen permitido para la
 // GUI ("*" en desarrollo; restríngelo en producción).
-func NewServer(store *Store, heartbeatInterval int, corsOrigin string) *Server {
+func NewServer(store Store, heartbeatInterval int, corsOrigin string) *Server {
 	if corsOrigin == "" {
 		corsOrigin = "*"
 	}
@@ -66,7 +66,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "clusterId y name son obligatorios")
 		return
 	}
-	token := s.store.Register(req, time.Now())
+	token, err := s.store.Register(req, time.Now())
+	if err != nil {
+		log.Printf("error registrando %q: %v", req.ClusterID, err)
+		writeError(w, http.StatusInternalServerError, "no se pudo registrar")
+		return
+	}
 	s.metrics.Registers.Add(1)
 	log.Printf("registrado clúster %q (%s) provider=%s", req.Name, req.ClusterID, req.Provider)
 	writeJSON(w, http.StatusOK, api.RegisterResponse{
@@ -99,7 +104,13 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTopology(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.Topology(time.Now()))
+	topo, err := s.store.Topology(time.Now())
+	if err != nil {
+		log.Printf("error leyendo topología: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudo leer la topología")
+		return
+	}
+	writeJSON(w, http.StatusOK, topo)
 }
 
 // ---- helpers ----
