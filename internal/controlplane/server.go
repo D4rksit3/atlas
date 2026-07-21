@@ -52,6 +52,8 @@ func (s *Server) Routes() http.Handler {
 
 	// Config pública para que la GUI sepa si debe pedir login y contra qué IdP.
 	mux.HandleFunc("GET /v1/authconfig", s.handleAuthConfig)
+	// Catálogo de complementos instalables (metadatos).
+	mux.HandleFunc("GET /v1/addons", s.handleAddons)
 
 	// Endpoints de la GUI: protegidos por OIDC + RBAC (si la auth está activa).
 	//   leer topología / acciones -> viewer;  encolar acciones -> operator.
@@ -72,6 +74,10 @@ func (s *Server) guard(minRole string, h http.HandlerFunc) http.Handler {
 		return h
 	}
 	return s.auth.Require(minRole, h)
+}
+
+func (s *Server) handleAddons(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, api.Addons())
 }
 
 func (s *Server) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {

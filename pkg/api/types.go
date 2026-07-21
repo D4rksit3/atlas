@@ -78,6 +78,16 @@ type Link struct {
 	To   string `json:"to"`
 }
 
+// AppResource es un recurso que gestiona una Application (parte de su árbol).
+type AppResource struct {
+	Group     string `json:"group,omitempty"`
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Status    string `json:"status,omitempty"` // Synced | OutOfSync ...
+	Health    string `json:"health,omitempty"` // Healthy | Progressing ...
+}
+
 // App es una Application de ArgoCD (un "proyecto" GitOps): un repo Git que ArgoCD
 // mantiene sincronizado en el clúster. Su estado (sync/health) sale del CRD.
 type App struct {
@@ -88,6 +98,8 @@ type App struct {
 	Revision  string `json:"revision,omitempty"`
 	Sync      string `json:"sync"`   // Synced | OutOfSync | Unknown
 	Health    string `json:"health"` // Healthy | Progressing | Degraded | Missing | ...
+	// Resources: el árbol de recursos que despliega (de status.resources).
+	Resources []AppResource `json:"resources,omitempty"`
 }
 
 // Snapshot es la foto del clúster que el agente envía en cada heartbeat.
@@ -118,6 +130,32 @@ const (
 	ActionSync     = "sync"     // forzar sincronización de un proyecto GitOps
 	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
 )
+
+// AddonInfo describe un complemento del catálogo (metadatos para la GUI y la
+// detección de "instalado"). Las URLs de manifiesto viven en el agente.
+type AddonInfo struct {
+	Key            string `json:"key"`
+	Name           string `json:"name"`
+	Category       string `json:"category"` // gitops | monitoreo | seguridad | redes
+	Description    string `json:"description"`
+	Namespace      string `json:"namespace"`
+	DetectWorkload string `json:"detectWorkload"` // carga cuya presencia indica instalado
+}
+
+// Addons es el catálogo de complementos instalables desde la GUI. Cerrado y
+// versionado: el agente solo instala estos (nunca YAML arbitrario).
+func Addons() []AddonInfo {
+	return []AddonInfo{
+		{Key: "argocd", Name: "Argo CD", Category: "gitops", Namespace: "argocd",
+			DetectWorkload: "argocd-server", Description: "Despliegue continuo (GitOps)"},
+		{Key: "kyverno", Name: "Kyverno", Category: "seguridad", Namespace: "kyverno",
+			DetectWorkload: "kyverno-admission-controller", Description: "Políticas de admisión y seguridad"},
+		{Key: "metallb", Name: "MetalLB", Category: "redes", Namespace: "metallb-system",
+			DetectWorkload: "controller", Description: "LoadBalancer para bare-metal/on-prem"},
+		{Key: "metrics-server", Name: "Metrics Server", Category: "monitoreo", Namespace: "kube-system",
+			DetectWorkload: "metrics-server", Description: "Métricas de CPU/memoria (base de monitoreo)"},
+	}
+}
 
 // AppSpec describe el proyecto GitOps a registrar (crea una Application de ArgoCD).
 type AppSpec struct {

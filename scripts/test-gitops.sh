@@ -77,6 +77,10 @@ done
 [ "$SEEN" = "Synced" ] || fail "el proyecto no llegó a Synced en Atlas"
 ok "Atlas ve el proyecto 'guestbook' en estado Synced"
 
+# árbol de recursos: la Application reporta qué despliega
+RES=$(curl -s "http://localhost:$PORT/v1/topology" | python3 -c "import sys,json;c=json.load(sys.stdin)['clusters'][0];a=[x for x in (c['snapshot'].get('apps') or []) if x['name']=='guestbook'];print(len(a[0].get('resources') or []) if a else 0)" 2>/dev/null)
+[ "${RES:-0}" -ge 1 ] && ok "Atlas ve el árbol de recursos del proyecto ($RES recursos)" || echo "  (árbol de recursos aún vacío)"
+
 # y sus cargas desplegadas por GitOps aparecen
 kubectl -n default get deploy guestbook-ui >/dev/null 2>&1 && ok "las cargas del repo (guestbook-ui) se desplegaron solas" || true
 

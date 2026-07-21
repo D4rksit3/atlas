@@ -16,10 +16,12 @@ import "reactflow/dist/style.css";
 import {
   fetchTopology,
   fetchAnnotations,
+  fetchAddons,
   type Topology,
   type Workload,
   type Annotation,
   type App,
+  type AddonInfo,
 } from "./api";
 import {
   ServiceNode,
@@ -86,6 +88,7 @@ interface BuildOpts {
 function build(
   topo: Topology | null,
   annos: Record<string, Annotation>,
+  addons: AddonInfo[],
   opts: BuildOpts,
 ): Built {
   const nodes: Node[] = [];
@@ -130,9 +133,12 @@ function build(
     const workloads = c.snapshot?.workloads ?? [];
 
     const cAnno = annos[c.clusterId] ?? {};
-    const argocdInstalled = workloads.some(
-      (w) => w.namespace === "argocd" && w.name === "argocd-server",
-    );
+    // Detección genérica de complementos: instalado si existe su carga señal.
+    const installedAddons = addons
+      .filter((a) =>
+        workloads.some((w) => w.namespace === a.namespace && w.name.includes(a.detectWorkload)),
+      )
+      .map((a) => a.key);
     add(clusterId, {
       label: cAnno.displayName || c.name,
       sublabel: providerLabel[c.provider] ?? c.provider,
@@ -149,7 +155,7 @@ function build(
         cluster: {
           clusterId: c.clusterId,
           online: c.online,
-          argocd: argocdInstalled,
+          installedAddons,
           apps: c.snapshot?.apps ?? [],
         },
       },
@@ -323,6 +329,7 @@ function build(
             sync: app.sync,
             health: app.health,
             repoURL: app.repoURL,
+            resources: app.resources ?? [],
           },
         },
       });
@@ -358,6 +365,7 @@ function build(
 export function TopologyMap() {
   const [topo, setTopo] = useState<Topology | null>(null);
   const [annos, setAnnos] = useState<Record<string, Annotation>>({});
+  const [addons, setAddons] = useState<AddonInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
@@ -387,6 +395,7 @@ export function TopologyMap() {
     };
     load();
     loadAnnos();
+    fetchAddons().then(setAddons).catch(() => {});
     const id = setInterval(load, POLL_MS);
     return () => {
       alive = false;
@@ -395,9 +404,9 @@ export function TopologyMap() {
   }, []);
 
   const { nodes, edges } = useMemo(() => {
-    const b = build(topo, annos, { view, onSelect: setSelected });
+    const b = build(topo, annos, addons, { view, onSelect: setSelected });
     return { nodes: layout(b.nodes, b.layoutEdges, b.sizes, "LR"), edges: b.edges };
-  }, [topo, annos, view]);
+  }, [topo, annos, addons, view]);
 
   const clusterCount = topo?.clusters?.length ?? 0;
 
@@ -476,6 +485,7 @@ export function TopologyMap() {
           <Inspector
             sel={selected}
             annotation={annos[selected.key] ?? {}}
+            addons={addons}
             onClose={() => setSelected(null)}
             onSaved={loadAnnos}
           />

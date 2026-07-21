@@ -242,6 +242,20 @@ main { flex: 1; min-height: 0; padding: 16px; }
 .proj-status { display: flex; align-items: center; gap: 9px; }
 .proj-status-text { font-size: 14px; font-family: ui-monospace, Menlo, monospace; }
 
+/* catálogo de complementos por categoría */
+.addon-cat { display: flex; flex-direction: column; gap: 6px; }
+.addon-cat-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-top: 4px; }
+
+/* árbol de recursos de un proyecto GitOps */
+.restree { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.res-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; font-size: 12.5px; }
+.res-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.res-kind {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.03em; color: var(--muted);
+  background: #212c3b; border-radius: 4px; padding: 1px 5px; min-width: 74px; text-align: center;
+}
+.res-name { font-family: ui-monospace, Menlo, monospace; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .insp-fb { font-size: 13px; border-radius: 8px; padding: 9px 11px; }
 .insp-fb.info { background: #212c3b; color: var(--muted); }
 .insp-fb.ok { background: rgba(47, 179, 126, 0.14); color: #7fe0b6; border: 1px solid rgba(47, 179, 126, 0.3); }

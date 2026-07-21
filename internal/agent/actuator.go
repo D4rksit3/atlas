@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -40,10 +41,24 @@ type addonSpec struct {
 }
 
 // Catálogo de complementos. Fijados a una versión concreta (cadena de confianza).
+// Se corresponde con api.Addons() (metadatos que ve la GUI). NUNCA se instala
+// nada fuera de este catálogo.
 var addons = map[string]addonSpec{
 	"argocd": {
 		namespace: "argocd",
 		url:       "https://raw.githubusercontent.com/argoproj/argo-cd/v2.11.7/manifests/install.yaml",
+	},
+	"kyverno": {
+		namespace: "kyverno",
+		url:       "https://github.com/kyverno/kyverno/releases/download/v1.12.6/install.yaml",
+	},
+	"metallb": {
+		namespace: "metallb-system",
+		url:       "https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml",
+	},
+	"metrics-server": {
+		namespace: "kube-system",
+		url:       "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml",
 	},
 }
 
@@ -169,7 +184,11 @@ func (a *KubeActuator) restart(ctx context.Context, act api.Action) error {
 func (a *KubeActuator) installAddon(ctx context.Context, name string) error {
 	spec, ok := addons[name]
 	if !ok {
-		return fmt.Errorf("complemento no soportado: %q (catálogo: argocd)", name)
+		keys := make([]string, 0, len(addons))
+		for k := range addons {
+			keys = append(keys, k)
+		}
+		return fmt.Errorf("complemento no soportado: %q (catálogo: %s)", name, strings.Join(keys, ", "))
 	}
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: spec.namespace}}
 	if _, err := a.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {

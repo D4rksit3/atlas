@@ -2,7 +2,7 @@
 // y estado, en el mismo estilo que el diagrama de arquitectura.
 import { Handle, Position } from "reactflow";
 import { Icon, type IconKey } from "./icons";
-import type { App } from "./api";
+import type { App, AppResource } from "./api";
 
 // WorkloadOp: datos que necesita el Inspector para operar una carga.
 export interface WorkloadOp {
@@ -25,7 +25,7 @@ export interface Selection {
   app?: AppOps; // presente solo si es un proyecto GitOps
 }
 
-// AppOps: acciones sobre un proyecto GitOps (sincronizar / revertir).
+// AppOps: acciones sobre un proyecto GitOps (sincronizar / revertir) + su árbol.
 export interface AppOps {
   clusterId: string;
   name: string;
@@ -33,13 +33,14 @@ export interface AppOps {
   sync: string;
   health: string;
   repoURL: string;
+  resources: AppResource[]; // árbol de recursos que despliega
 }
 
 // ClusterOps: acciones a nivel de clúster (complementos y proyectos GitOps).
 export interface ClusterOps {
   clusterId: string;
   online: boolean;
-  argocd: boolean; // ¿ArgoCD ya instalado?
+  installedAddons: string[]; // keys de complementos ya instalados (detectados)
   apps: App[]; // proyectos GitOps (Applications de ArgoCD)
 }
 

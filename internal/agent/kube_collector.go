@@ -158,10 +158,42 @@ func (c *KubeCollector) collectApps(ctx context.Context) []api.App {
 		apps = append(apps, api.App{
 			Name: u.GetName(), Namespace: u.GetNamespace(),
 			RepoURL: repo, Path: path, Revision: rev, Sync: sync, Health: health,
+			Resources: appResources(u.Object),
 		})
 	}
 	sort.Slice(apps, func(a, b int) bool { return apps[a].Name < apps[b].Name })
 	return apps
+}
+
+// appResources extrae el árbol de recursos de una Application (status.resources).
+func appResources(obj map[string]interface{}) []api.AppResource {
+	raw, _, _ := unstructured.NestedSlice(obj, "status", "resources")
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make([]api.AppResource, 0, len(raw))
+	for _, r := range raw {
+		m, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		group, _, _ := unstructured.NestedString(m, "group")
+		kind, _, _ := unstructured.NestedString(m, "kind")
+		ns, _, _ := unstructured.NestedString(m, "namespace")
+		name, _, _ := unstructured.NestedString(m, "name")
+		status, _, _ := unstructured.NestedString(m, "status")
+		health, _, _ := unstructured.NestedString(m, "health", "status")
+		out = append(out, api.AppResource{
+			Group: group, Kind: kind, Namespace: ns, Name: name, Status: status, Health: health,
+		})
+	}
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Kind != out[b].Kind {
+			return out[a].Kind < out[b].Kind
+		}
+		return out[a].Name < out[b].Name
+	})
+	return out
 }
 
 // fillPlacement lista los pods y rellena Workload.Placement con el reparto por

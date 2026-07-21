@@ -36,6 +36,15 @@ export interface Link {
   to: string;
 }
 
+export interface AppResource {
+  group?: string;
+  kind: string;
+  namespace?: string;
+  name: string;
+  status?: string;
+  health?: string;
+}
+
 export interface App {
   name: string;
   namespace: string;
@@ -44,6 +53,24 @@ export interface App {
   revision?: string;
   sync: string; // Synced | OutOfSync | Unknown
   health: string; // Healthy | Progressing | Degraded | ...
+  resources?: AppResource[] | null;
+}
+
+// AddonInfo: un complemento del catálogo instalable desde la GUI.
+export interface AddonInfo {
+  key: string;
+  name: string;
+  category: string; // gitops | monitoreo | seguridad | redes
+  description: string;
+  namespace: string;
+  detectWorkload: string;
+}
+
+/** Catálogo de complementos instalables. */
+export async function fetchAddons(): Promise<AddonInfo[]> {
+  const res = await fetch("/v1/addons");
+  if (!res.ok) return [];
+  return (await res.json()) as AddonInfo[];
 }
 
 export interface AppSpec {
