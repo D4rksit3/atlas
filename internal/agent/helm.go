@@ -18,14 +18,42 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
-// installHelm instala un chart de Helm VETADO como un release real. Usa el SDK de
-// Helm compilado dentro del agente (no requiere el binario 'helm'), y funciona
-// igual in-cluster o con kubeconfig porque parte del rest.Config del agente.
+// installHelm instala (o ACTUALIZA, si ya existe el release) un chart de Helm
+// VETADO como un release real. Usa el SDK de Helm compilado dentro del agente (no
+// requiere el binario 'helm') y funciona igual in-cluster o con kubeconfig.
 func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *helmChart, values map[string]interface{}) error {
 	getter := &restGetter{cfg: a.cfg, namespace: namespace}
 	cfg := new(action.Configuration)
 	if err := cfg.Init(getter, namespace, "secret", func(string, ...interface{}) {}); err != nil {
 		return fmt.Errorf("inicializando Helm: %w", err)
+	}
+	if values == nil {
+		values = map[string]interface{}{}
+	}
+	settings := cli.New()
+
+	// ¿Ya existe el release? -> upgrade; si no -> install.
+	hist, herr := action.NewHistory(cfg).Run(c.release)
+	if herr == nil && len(hist) > 0 {
+		up := action.NewUpgrade(cfg)
+		up.Namespace = namespace
+		up.RepoURL = c.repo
+		up.Version = c.version
+		up.Timeout = 5 * time.Minute
+		up.Wait = false
+		up.ReuseValues = true // conserva los valores previos; solo sobreescribe los editados
+		chartPath, err := up.ChartPathOptions.LocateChart(c.chart, settings)
+		if err != nil {
+			return fmt.Errorf("localizando el chart %s: %w", c.chart, err)
+		}
+		ch, err := loader.Load(chartPath)
+		if err != nil {
+			return fmt.Errorf("cargando el chart: %w", err)
+		}
+		if _, err := up.RunWithContext(ctx, c.release, ch, values); err != nil {
+			return fmt.Errorf("actualizando %s: %w", c.chart, err)
+		}
+		return nil
 	}
 
 	inst := action.NewInstall(cfg)
@@ -34,10 +62,9 @@ func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *hel
 	inst.CreateNamespace = true
 	inst.RepoURL = c.repo
 	inst.Version = c.version
-	inst.Timeout = 4 * time.Minute
+	inst.Timeout = 5 * time.Minute
 	inst.Wait = false
 
-	settings := cli.New()
 	chartPath, err := inst.ChartPathOptions.LocateChart(c.chart, settings)
 	if err != nil {
 		return fmt.Errorf("localizando el chart %s: %w", c.chart, err)
@@ -45,9 +72,6 @@ func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *hel
 	ch, err := loader.Load(chartPath)
 	if err != nil {
 		return fmt.Errorf("cargando el chart: %w", err)
-	}
-	if values == nil {
-		values = map[string]interface{}{}
 	}
 	if _, err := inst.RunWithContext(ctx, ch, values); err != nil {
 		return fmt.Errorf("instalando %s: %w", c.chart, err)

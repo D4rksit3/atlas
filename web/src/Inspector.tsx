@@ -334,7 +334,15 @@ export function Inspector({
                           <span className="addon-desc">{a.description}</span>
                         </div>
                         {isInstalled(a.key) ? (
-                          <span className="addon-installed">instalado ✓</span>
+                          <span className="addon-state">
+                            <span className="addon-installed">instalado ✓</span>
+                            {(a.params?.length ?? 0) > 0 && (
+                              <button className="addon-edit" onClick={() => startInstall(a)}
+                                disabled={installingKey !== null || !cluster.online}>
+                                editar
+                              </button>
+                            )}
+                          </span>
                         ) : (
                           <button className="btn" onClick={() => startInstall(a)}
                             disabled={installingKey !== null || !cluster.online}>
@@ -358,7 +366,7 @@ export function Inspector({
                           ))}
                           <div className="insp-actions">
                             <button className="btn primary" onClick={() => install(a, formVals)}>
-                              Instalar {a.name}
+                              {isInstalled(a.key) ? "Actualizar" : "Instalar"} {a.name}
                             </button>
                             <button className="btn" onClick={() => setFormKey(null)}>Cancelar</button>
                           </div>

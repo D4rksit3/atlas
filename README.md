@@ -153,6 +153,10 @@ GUI): p. ej. la **contraseña de Grafana** y la **retención de Prometheus**. El
 agente solo aplica valores en **paths de Helm vetados** por el catálogo
 (`AddonParam.Path`), nunca rutas arbitrarias. Verificado con `make test-values`.
 
+En un complemento **ya instalado** con parámetros, el botón *editar* reabre el
+formulario y hace `helm upgrade` conservando el resto de valores (`ReuseValues`).
+Verificado con `make test-upgrade`.
+
 > Nota (Helm in-cluster): Helm necesita un directorio de caché escribible. Con
 > `readOnlyRootFilesystem`, monta un `emptyDir` y define `HELM_CACHE_HOME`,
 > `HELM_CONFIG_HOME` y `HELM_DATA_HOME` (ver `deploy/agent-addons.yaml`).
