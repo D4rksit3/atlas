@@ -45,20 +45,68 @@ export function Inspector({
   const [opFb, setOpFb] = useState<Feedback | null>(null);
   const poll = useRef<number | null>(null);
 
+  // --- complementos (solo clústeres) ---
+  const cluster = sel.cluster;
+  const [argocd, setArgocd] = useState(cluster?.argocd ?? false);
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installFb, setInstallFb] = useState<Feedback | null>(null);
+  const ipoll = useRef<number | null>(null);
+
   useEffect(() => {
     setName(annotation.displayName ?? "");
     setColor(annotation.color ?? "");
     setNote(annotation.note ?? "");
     setReplicas(op?.replicas ?? 0);
+    setArgocd(cluster?.argocd ?? false);
     setSavedFb(null);
     setOpFb(null);
+    setInstallFb(null);
     return stopPoll;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel.key]);
 
   function stopPoll() {
     if (poll.current) window.clearInterval(poll.current);
+    if (ipoll.current) window.clearInterval(ipoll.current);
     poll.current = null;
+    ipoll.current = null;
+  }
+
+  async function installArgo() {
+    if (!cluster) return;
+    setInstallBusy(true);
+    setInstallFb({ text: "instalando ArgoCD… (puede tardar ~1 min)", tone: "info" });
+    try {
+      const a = await postAction(cluster.clusterId, { kind: "install", addon: "argocd" });
+      let tries = 0;
+      ipoll.current = window.setInterval(async () => {
+        tries++;
+        try {
+          const acts = await fetchActions(cluster.clusterId);
+          const st = acts.find((x) => x.id === a.id)?.status;
+          if (st === "done") {
+            window.clearInterval(ipoll.current!);
+            setInstallBusy(false);
+            setArgocd(true);
+            setInstallFb({ text: "ArgoCD instalado ✓", tone: "ok" });
+          } else if (st === "error") {
+            window.clearInterval(ipoll.current!);
+            setInstallBusy(false);
+            const err = acts.find((x) => x.id === a.id)?.error;
+            setInstallFb({ text: `error: ${err ?? "desconocido"}`, tone: "err" });
+          } else if (tries > 90) {
+            window.clearInterval(ipoll.current!);
+            setInstallBusy(false);
+            setInstallFb({ text: "sin confirmación aún (¿agente offline?)", tone: "err" });
+          }
+        } catch {
+          /* reintenta */
+        }
+      }, 2000);
+    } catch (e) {
+      setInstallBusy(false);
+      setInstallFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
+    }
   }
 
   const dirty =
@@ -179,6 +227,37 @@ export function Inspector({
           Guardar
         </button>
         {savedFb && <div className={`insp-fb ${savedFb.tone}`}>{savedFb.text}</div>}
+
+        {/* ---- complementos (solo clústeres) ---- */}
+        {cluster && (
+          <>
+            <div className="insp-section">Complementos</div>
+            <div className="addon-row">
+              <div className="addon-meta">
+                <span className="addon-name">ArgoCD</span>
+                <span className="addon-desc">GitOps · despliegue continuo</span>
+              </div>
+              {argocd ? (
+                <span className="addon-installed">instalado ✓</span>
+              ) : (
+                <button
+                  className="btn"
+                  onClick={installArgo}
+                  disabled={installBusy || !cluster.online}
+                >
+                  {installBusy ? "instalando…" : "Instalar"}
+                </button>
+              )}
+            </div>
+            {installFb && <div className={`insp-fb ${installFb.tone}`}>{installFb.text}</div>}
+            {!argocd && (
+              <div className="insp-hint-sm">
+                El agente aplicará el manifiesto vetado de ArgoCD (v2.11.7). Requiere
+                permisos ampliados — ver <span className="mono">deploy/agent-addons.yaml</span>.
+              </div>
+            )}
+          </>
+        )}
 
         {/* ---- operar (solo cargas) ---- */}
         {op && (

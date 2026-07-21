@@ -121,6 +121,9 @@ function build(
     const workloads = c.snapshot?.workloads ?? [];
 
     const cAnno = annos[c.clusterId] ?? {};
+    const argocdInstalled = workloads.some(
+      (w) => w.namespace === "argocd" && w.name === "argocd-server",
+    );
     add(clusterId, {
       label: cAnno.displayName || c.name,
       sublabel: providerLabel[c.provider] ?? c.provider,
@@ -134,6 +137,7 @@ function build(
         title: c.name,
         kind: "Clúster",
         subtitle: providerLabel[c.provider] ?? c.provider,
+        cluster: { clusterId: c.clusterId, online: c.online, argocd: argocdInstalled },
       },
     });
 

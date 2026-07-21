@@ -66,15 +66,16 @@ export async function fetchTopology(): Promise<Topology> {
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
 
-export type ActionKind = "scale" | "restart";
+export type ActionKind = "scale" | "restart" | "install";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 export interface ActionRequest {
   kind: ActionKind;
-  namespace: string;
-  workload: string;
-  workloadKind: string;
-  replicas: number;
+  namespace?: string;
+  workload?: string;
+  workloadKind?: string;
+  replicas?: number;
+  addon?: string; // solo para install
 }
 
 export interface Action {

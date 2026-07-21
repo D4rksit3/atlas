@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations test-argocd vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -60,6 +60,9 @@ test-audit: ## E2E: registro de auditoría con atribución de usuario (OIDC)
 
 test-annotations: ## E2E: editar el mapa (anotaciones) con RBAC + auditoría
 	./scripts/test-annotations.sh
+
+test-argocd: ## E2E: instalar ArgoCD desde la GUI (acción install) contra k3d
+	./scripts/test-argocd.sh
 
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1

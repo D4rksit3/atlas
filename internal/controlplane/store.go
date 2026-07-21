@@ -74,6 +74,8 @@ func summarize(a api.Action) string {
 		return fmt.Sprintf("escalar %s/%s a %d réplicas", a.Namespace, a.Workload, a.Replicas)
 	case api.ActionRestart:
 		return fmt.Sprintf("reiniciar %s/%s", a.Namespace, a.Workload)
+	case api.ActionInstall:
+		return fmt.Sprintf("instalar el complemento %q", a.Addon)
 	default:
 		return a.Kind + " " + a.Namespace + "/" + a.Workload
 	}
@@ -93,23 +95,28 @@ func newActionID() string {
 
 // validActionRequest valida una acción antes de encolarla.
 func validActionRequest(req api.ActionRequest) error {
-	if req.Namespace == "" || req.Workload == "" {
-		return errors.New("namespace y workload son obligatorios")
-	}
 	switch req.Kind {
-	case api.ActionScale:
-		if req.Replicas < 0 || req.Replicas > 1000 {
+	case api.ActionInstall:
+		// Instalar un complemento: solo hace falta el addon (el agente valida que
+		// esté en su catálogo vetado).
+		if req.Addon == "" {
+			return errors.New("install requiere 'addon'")
+		}
+		return nil
+	case api.ActionScale, api.ActionRestart:
+		if req.Namespace == "" || req.Workload == "" {
+			return errors.New("namespace y workload son obligatorios")
+		}
+		if req.WorkloadKind != "Deployment" && req.WorkloadKind != "StatefulSet" {
+			return errors.New("workloadKind debe ser Deployment o StatefulSet")
+		}
+		if req.Kind == api.ActionScale && (req.Replicas < 0 || req.Replicas > 1000) {
 			return errors.New("replicas fuera de rango (0..1000)")
 		}
-	case api.ActionRestart:
-		// sin parámetros extra
+		return nil
 	default:
-		return errors.New("kind no soportado (usa: scale | restart)")
+		return errors.New("kind no soportado (usa: scale | restart | install)")
 	}
-	if req.WorkloadKind != "Deployment" && req.WorkloadKind != "StatefulSet" {
-		return errors.New("workloadKind debe ser Deployment o StatefulSet")
-	}
-	return nil
 }
 
 // ErrBadAction lo devuelve el store si la petición de acción es inválida.

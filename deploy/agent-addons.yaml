@@ -1,0 +1,30 @@
+# RBAC AMPLIADO para que el agente pueda INSTALAR complementos (p. ej. ArgoCD)
+# desde la GUI. ⚠️ OPT-IN A PROPÓSITO: por defecto el agente es de mínimo
+# privilegio (leer + escalar/reiniciar). Instalar ArgoCD implica crear CRDs,
+# ClusterRoles, etc. — eso necesita permisos ~de admin en el clúster.
+#
+# Aplica esto SOLO si quieres el botón "Instalar ArgoCD" de la consola:
+#
+#   kubectl apply -f deploy/agent.yaml          # base (mínimo privilegio)
+#   kubectl apply -f deploy/agent-addons.yaml   # + permiso de instalación (opcional)
+#
+# El agente solo aplica manifiestos de su CATÁLOGO VETADO y con versión fijada
+# (no acepta YAML arbitrario de la GUI), pero el permiso que se le concede aquí
+# es amplio. Revísalo y decide conscientemente. Para atar más fino, sustituye el
+# cluster-admin por un ClusterRole a medida con los verbos/recursos que instala
+# tu complemento.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: atlas-agent-addons
+  annotations:
+    atlas.dev/warning: "concede permisos amplios al agente para instalar complementos"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: atlas-agent
+    namespace: atlas-system

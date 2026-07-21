@@ -99,15 +99,17 @@ const (
 const (
 	ActionScale   = "scale"   // cambiar el nº de réplicas de una carga
 	ActionRestart = "restart" // reinicio suave (rollout) de una carga
+	ActionInstall = "install" // instalar un complemento vetado (p. ej. ArgoCD)
 )
 
-// ActionRequest es lo que la GUI envía para encolar una acción sobre una carga.
+// ActionRequest es lo que la GUI envía para encolar una acción.
 type ActionRequest struct {
-	Kind         string `json:"kind"`         // scale | restart
-	Namespace    string `json:"namespace"`    // namespace de la carga
-	Workload     string `json:"workload"`     // nombre de la carga
-	WorkloadKind string `json:"workloadKind"` // Deployment | StatefulSet
-	Replicas     int    `json:"replicas"`     // objetivo (solo para scale)
+	Kind         string `json:"kind"`            // scale | restart | install
+	Namespace    string `json:"namespace"`       // namespace de la carga (scale/restart)
+	Workload     string `json:"workload"`        // nombre de la carga (scale/restart)
+	WorkloadKind string `json:"workloadKind"`    // Deployment | StatefulSet
+	Replicas     int    `json:"replicas"`        // objetivo (solo scale)
+	Addon        string `json:"addon,omitempty"` // complemento a instalar (solo install)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
@@ -118,6 +120,7 @@ type Action struct {
 	Workload     string    `json:"workload"`
 	WorkloadKind string    `json:"workloadKind"`
 	Replicas     int       `json:"replicas"`
+	Addon        string    `json:"addon,omitempty"`
 	Status       string    `json:"status"`
 	Error        string    `json:"error,omitempty"`
 	RequestedBy  string    `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)

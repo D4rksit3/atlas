@@ -127,6 +127,21 @@ en el control plane (`PUT /v1/annotations/{clave}`) para que **todo el equipo ve
 lo mismo**, requieren rol **operator** y quedan **auditadas**. Verificado con
 `make test-annotations`.
 
+## Complementos: instalar ArgoCD (GitOps) desde la GUI
+
+En el Inspector de un **clúster** hay una sección **Complementos**: si ArgoCD no
+está, un botón **Instalar**; si ya está, **instalado ✓** (Atlas lo detecta). Al
+instalar, el agente crea el namespace y aplica el manifiesto de ArgoCD con
+*server-side apply*. La orden viaja por el canal de acciones (queda auditada).
+
+> ⚠️ **Requiere permiso ampliado.** Instalar ArgoCD crea CRDs, ClusterRoles, etc.,
+> así que el agente necesita permisos ~de admin. Por eso el catálogo es **cerrado**
+> (solo complementos vetados, versión fijada — nunca YAML arbitrario) y el RBAC es
+> **opt-in**: `kubectl apply -f deploy/agent-addons.yaml`. Decídelo conscientemente.
+
+Verificado E2E (`make test-argocd`): la acción llega a `done`, ArgoCD queda
+instalado y **aparece en el propio mapa de Atlas**.
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de

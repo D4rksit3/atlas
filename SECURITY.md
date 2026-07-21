@@ -21,6 +21,7 @@ entornos que administrar.
 | AuthN/AuthZ de la GUI | ✅ **OIDC (PKCE) + RBAC** (viewer/operator) | grupos anidados, sesión/refresh, auditoría |
 | Endpoints de acción (escalar/reiniciar) | ✅ protegidos: exigen rol **operator** | — |
 | Auditoría | ✅ **rastro de quién hizo qué** (solicitó/ejecutó, con resultado) | exportar a un SIEM; inmutabilidad |
+| Instalar complementos (ArgoCD) | ⚠️ **opt-in**: catálogo cerrado + versión fijada, pero RBAC amplio | ClusterRole a medida por complemento (no cluster-admin) |
 | CORS | `*` por defecto | fija el origen: `--cors-origin https://tu-gui` |
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
 | Timeouts del servidor | ✅ read/write | añadir rate-limiting por agente |

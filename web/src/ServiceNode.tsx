@@ -20,6 +20,14 @@ export interface Selection {
   kind: string; // "Clúster" | "Deployment" | "StatefulSet"
   subtitle: string; // provider o namespace
   op?: WorkloadOp; // presente solo si es operable (carga)
+  cluster?: ClusterOps; // presente solo si es un clúster (complementos)
+}
+
+// ClusterOps: acciones a nivel de clúster (instalar complementos).
+export interface ClusterOps {
+  clusterId: string;
+  online: boolean;
+  argocd: boolean; // ¿ArgoCD ya instalado?
 }
 
 export interface ServiceNodeData {
