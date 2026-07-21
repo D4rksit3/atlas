@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -153,7 +154,7 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 	case api.ActionRestart:
 		err = a.restart(ctx, act)
 	case api.ActionInstall:
-		err = a.installAddon(ctx, act.Addon)
+		err = a.installAddon(ctx, act.Addon, act.Values)
 	case api.ActionAddApp:
 		err = a.addApp(ctx, act.App)
 	case api.ActionSync:
@@ -213,9 +214,10 @@ func (a *KubeActuator) restart(ctx context.Context, act api.Action) error {
 	}
 }
 
-// installAddon instala un complemento del catálogo: crea su namespace, descarga
-// el manifiesto fijado y lo aplica (server-side apply).
-func (a *KubeActuator) installAddon(ctx context.Context, name string) error {
+// installAddon instala un complemento del catálogo: crea su namespace y aplica el
+// manifiesto fijado (server-side apply) o el chart de Helm. userValues son valores
+// editables que solo se aplican en los paths VETADOS del catálogo.
+func (a *KubeActuator) installAddon(ctx context.Context, name string, userValues map[string]string) error {
 	spec, ok := addons[name]
 	if !ok {
 		keys := make([]string, 0, len(addons))
@@ -230,13 +232,57 @@ func (a *KubeActuator) installAddon(ctx context.Context, name string) error {
 	}
 	// Chart de Helm o manifiesto único.
 	if spec.helm != nil {
-		return a.installHelm(ctx, spec.namespace, spec.helm)
+		values := mergeAddonValues(name, spec.helm.values, userValues)
+		return a.installHelm(ctx, spec.namespace, spec.helm, values)
 	}
 	manifest, err := a.fetch(ctx, spec.url)
 	if err != nil {
 		return err
 	}
 	return a.applyManifest(ctx, manifest, spec.namespace)
+}
+
+// mergeAddonValues parte de los values base del chart y superpone los valores del
+// usuario SOLO en los paths declarados en el catálogo (api.AddonParams). Ignora
+// cualquier clave que no sea un parámetro vetado del complemento.
+func mergeAddonValues(addon string, base map[string]interface{}, user map[string]string) map[string]interface{} {
+	out := map[string]interface{}{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for _, p := range api.AddonParams(addon) {
+		raw, ok := user[p.Key]
+		if !ok || raw == "" {
+			continue
+		}
+		setNestedValue(out, strings.Split(p.Path, "."), typedValue(p.Type, raw))
+	}
+	return out
+}
+
+// setNestedValue fija value en out siguiendo la ruta (creando mapas intermedios).
+func setNestedValue(out map[string]interface{}, path []string, value interface{}) {
+	for i := 0; i < len(path)-1; i++ {
+		next, ok := out[path[i]].(map[string]interface{})
+		if !ok {
+			next = map[string]interface{}{}
+			out[path[i]] = next
+		}
+		out = next
+	}
+	out[path[len(path)-1]] = value
+}
+
+func typedValue(kind, raw string) interface{} {
+	switch kind {
+	case "int":
+		if n, err := strconv.Atoi(raw); err == nil {
+			return n
+		}
+	case "bool":
+		return raw == "true" || raw == "1"
+	}
+	return raw
 }
 
 // addApp registra un proyecto GitOps: crea una Application de ArgoCD con auto-sync

@@ -245,6 +245,8 @@ main { flex: 1; min-height: 0; padding: 16px; }
 /* catálogo de complementos por categoría */
 .addon-cat { display: flex; flex-direction: column; gap: 6px; }
 .addon-cat-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-top: 4px; }
+.addon-form { display: flex; flex-direction: column; gap: 8px; padding: 10px; margin: 4px 0 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.addon-field { display: flex; flex-direction: column; gap: 4px; }
 
 /* árbol de recursos de un proyecto GitOps */
 .restree { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }

@@ -64,6 +64,8 @@ export function Inspector({
   const [installingKey, setInstallingKey] = useState<string | null>(null);
   const [installFb, setInstallFb] = useState<Feedback | null>(null);
   const [justInstalled, setJustInstalled] = useState<string[]>([]);
+  const [formKey, setFormKey] = useState<string | null>(null); // addon con formulario abierto
+  const [formVals, setFormVals] = useState<Record<string, string>>({});
 
   // proyectos GitOps (form + sync/rollback)
   const [pName, setPName] = useState("");
@@ -85,6 +87,7 @@ export function Inspector({
     setInstallFb(null);
     setAddFb(null);
     setGitFb(null);
+    setFormKey(null);
     setPName("");
     setPRepo("");
     setPPath("");
@@ -160,12 +163,30 @@ export function Inspector({
   }
 
   // ---- instalar un complemento del catálogo ----
-  async function install(addon: AddonInfo) {
+  // Si tiene parámetros editables, abre el formulario; si no, instala directo.
+  function startInstall(addon: AddonInfo) {
+    const params = addon.params ?? [];
+    if (params.length > 0) {
+      const defs: Record<string, string> = {};
+      for (const p of params) defs[p.key] = p.default ?? "";
+      setFormVals(defs);
+      setFormKey(addon.key);
+      return;
+    }
+    install(addon, {});
+  }
+
+  async function install(addon: AddonInfo, values: Record<string, string>) {
     if (!cluster) return;
+    setFormKey(null);
     setInstallingKey(addon.key);
     setInstallFb({ text: `instalando ${addon.name}… (puede tardar)`, tone: "info" });
     try {
-      const a = await postAction(cluster.clusterId, { kind: "install", addon: addon.key });
+      const a = await postAction(cluster.clusterId, {
+        kind: "install",
+        addon: addon.key,
+        values: Object.keys(values).length ? values : undefined,
+      });
       trackAction(cluster.clusterId, a.id, (ok, err) => {
         setInstallingKey(null);
         if (ok) {
@@ -306,18 +327,42 @@ export function Inspector({
                 <div className="addon-cat" key={cat.key}>
                   <div className="addon-cat-label">{cat.label}</div>
                   {items.map((a) => (
-                    <div className="addon-row" key={a.key}>
-                      <div className="addon-meta">
-                        <span className="addon-name">{a.name}</span>
-                        <span className="addon-desc">{a.description}</span>
+                    <div key={a.key}>
+                      <div className="addon-row">
+                        <div className="addon-meta">
+                          <span className="addon-name">{a.name}</span>
+                          <span className="addon-desc">{a.description}</span>
+                        </div>
+                        {isInstalled(a.key) ? (
+                          <span className="addon-installed">instalado ✓</span>
+                        ) : (
+                          <button className="btn" onClick={() => startInstall(a)}
+                            disabled={installingKey !== null || !cluster.online}>
+                            {installingKey === a.key ? "instalando…" : "Instalar"}
+                          </button>
+                        )}
                       </div>
-                      {isInstalled(a.key) ? (
-                        <span className="addon-installed">instalado ✓</span>
-                      ) : (
-                        <button className="btn" onClick={() => install(a)}
-                          disabled={installingKey !== null || !cluster.online}>
-                          {installingKey === a.key ? "instalando…" : "Instalar"}
-                        </button>
+                      {formKey === a.key && (
+                        <div className="addon-form">
+                          {(a.params ?? []).map((p) => (
+                            <div className="addon-field" key={p.key}>
+                              <label className="insp-label">{p.label}</label>
+                              <input
+                                className="insp-input"
+                                type={p.type === "password" ? "password" : p.type === "int" ? "number" : "text"}
+                                value={formVals[p.key] ?? ""}
+                                placeholder={p.default || "(por defecto)"}
+                                onChange={(e) => setFormVals((v) => ({ ...v, [p.key]: e.target.value }))}
+                              />
+                            </div>
+                          ))}
+                          <div className="insp-actions">
+                            <button className="btn primary" onClick={() => install(a, formVals)}>
+                              Instalar {a.name}
+                            </button>
+                            <button className="btn" onClick={() => setFormKey(null)}>Cancelar</button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}

@@ -56,6 +56,14 @@ export interface App {
   resources?: AppResource[] | null;
 }
 
+export interface AddonParam {
+  key: string;
+  label: string;
+  type: string; // string | password | int | bool
+  default: string;
+  path: string;
+}
+
 // AddonInfo: un complemento del catálogo instalable desde la GUI.
 export interface AddonInfo {
   key: string;
@@ -64,6 +72,7 @@ export interface AddonInfo {
   description: string;
   namespace: string;
   detectWorkload: string;
+  params?: AddonParam[] | null;
 }
 
 /** Catálogo de complementos instalables. */
@@ -128,6 +137,7 @@ export interface ActionRequest {
   workloadKind?: string;
   replicas?: number;
   addon?: string; // solo para install
+  values?: Record<string, string>; // valores del complemento (solo install)
   app?: AppSpec; // solo para addapp
 }
 

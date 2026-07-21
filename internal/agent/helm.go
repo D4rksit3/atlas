@@ -21,7 +21,7 @@ import (
 // installHelm instala un chart de Helm VETADO como un release real. Usa el SDK de
 // Helm compilado dentro del agente (no requiere el binario 'helm'), y funciona
 // igual in-cluster o con kubeconfig porque parte del rest.Config del agente.
-func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *helmChart) error {
+func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *helmChart, values map[string]interface{}) error {
 	getter := &restGetter{cfg: a.cfg, namespace: namespace}
 	cfg := new(action.Configuration)
 	if err := cfg.Init(getter, namespace, "secret", func(string, ...interface{}) {}); err != nil {
@@ -46,11 +46,10 @@ func (a *KubeActuator) installHelm(ctx context.Context, namespace string, c *hel
 	if err != nil {
 		return fmt.Errorf("cargando el chart: %w", err)
 	}
-	vals := c.values
-	if vals == nil {
-		vals = map[string]interface{}{}
+	if values == nil {
+		values = map[string]interface{}{}
 	}
-	if _, err := inst.RunWithContext(ctx, ch, vals); err != nil {
+	if _, err := inst.RunWithContext(ctx, ch, values); err != nil {
 		return fmt.Errorf("instalando %s: %w", c.chart, err)
 	}
 	return nil

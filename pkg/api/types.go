@@ -131,15 +131,37 @@ const (
 	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
 )
 
+// AddonParam es un valor editable de un complemento al instalarlo (p. ej. la
+// contraseña de Grafana). Path es la ruta VETADA en los values de Helm; el agente
+// solo acepta estos paths, nunca rutas arbitrarias de la GUI.
+type AddonParam struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Type    string `json:"type"`    // string | password | int | bool
+	Default string `json:"default"` // valor por defecto (texto)
+	Path    string `json:"path"`    // ruta en los values de Helm (p. ej. grafana.adminPassword)
+}
+
 // AddonInfo describe un complemento del catálogo (metadatos para la GUI y la
 // detección de "instalado"). Las URLs de manifiesto viven en el agente.
 type AddonInfo struct {
-	Key            string `json:"key"`
-	Name           string `json:"name"`
-	Category       string `json:"category"` // gitops | monitoreo | seguridad | redes
-	Description    string `json:"description"`
-	Namespace      string `json:"namespace"`
-	DetectWorkload string `json:"detectWorkload"` // carga cuya presencia indica instalado
+	Key            string       `json:"key"`
+	Name           string       `json:"name"`
+	Category       string       `json:"category"` // gitops | monitoreo | seguridad | redes
+	Description    string       `json:"description"`
+	Namespace      string       `json:"namespace"`
+	DetectWorkload string       `json:"detectWorkload"`   // carga cuya presencia indica instalado
+	Params         []AddonParam `json:"params,omitempty"` // valores editables al instalar
+}
+
+// AddonParams devuelve los parámetros editables de un complemento (o nil).
+func AddonParams(key string) []AddonParam {
+	for _, a := range Addons() {
+		if a.Key == key {
+			return a.Params
+		}
+	}
+	return nil
 }
 
 // Addons es el catálogo de complementos instalables desde la GUI. Cerrado y
@@ -157,7 +179,13 @@ func Addons() []AddonInfo {
 		{Key: "metrics-server", Name: "Metrics Server", Category: "monitoreo", Namespace: "kube-system",
 			DetectWorkload: "metrics-server", Description: "Métricas de CPU/memoria (base de monitoreo)"},
 		{Key: "kube-prometheus-stack", Name: "Prometheus + Grafana", Category: "monitoreo", Namespace: "monitoring",
-			DetectWorkload: "grafana", Description: "Monitoreo completo: Prometheus, Grafana y Alertmanager"},
+			DetectWorkload: "grafana", Description: "Monitoreo completo: Prometheus, Grafana y Alertmanager",
+			Params: []AddonParam{
+				{Key: "grafanaPassword", Label: "Contraseña de Grafana (admin)", Type: "password",
+					Default: "", Path: "grafana.adminPassword"},
+				{Key: "retention", Label: "Retención de Prometheus", Type: "string",
+					Default: "10d", Path: "prometheus.prometheusSpec.retention"},
+			}},
 	}
 }
 
@@ -172,30 +200,32 @@ type AppSpec struct {
 
 // ActionRequest es lo que la GUI envía para encolar una acción.
 type ActionRequest struct {
-	Kind         string   `json:"kind"`            // scale | restart | install | addapp
-	Namespace    string   `json:"namespace"`       // namespace de la carga (scale/restart)
-	Workload     string   `json:"workload"`        // nombre de la carga (scale/restart)
-	WorkloadKind string   `json:"workloadKind"`    // Deployment | StatefulSet
-	Replicas     int      `json:"replicas"`        // objetivo (solo scale)
-	Addon        string   `json:"addon,omitempty"` // complemento a instalar (solo install)
-	App          *AppSpec `json:"app,omitempty"`   // proyecto a registrar (solo addapp)
+	Kind         string            `json:"kind"`             // scale | restart | install | addapp
+	Namespace    string            `json:"namespace"`        // namespace de la carga (scale/restart)
+	Workload     string            `json:"workload"`         // nombre de la carga (scale/restart)
+	WorkloadKind string            `json:"workloadKind"`     // Deployment | StatefulSet
+	Replicas     int               `json:"replicas"`         // objetivo (solo scale)
+	Addon        string            `json:"addon,omitempty"`  // complemento a instalar (solo install)
+	Values       map[string]string `json:"values,omitempty"` // valores del complemento (solo install)
+	App          *AppSpec          `json:"app,omitempty"`    // proyecto a registrar (solo addapp)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
 type Action struct {
-	ID           string    `json:"id"`
-	Kind         string    `json:"kind"`
-	Namespace    string    `json:"namespace"`
-	Workload     string    `json:"workload"`
-	WorkloadKind string    `json:"workloadKind"`
-	Replicas     int       `json:"replicas"`
-	Addon        string    `json:"addon,omitempty"`
-	App          *AppSpec  `json:"app,omitempty"`
-	Status       string    `json:"status"`
-	Error        string    `json:"error,omitempty"`
-	RequestedBy  string    `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           string            `json:"id"`
+	Kind         string            `json:"kind"`
+	Namespace    string            `json:"namespace"`
+	Workload     string            `json:"workload"`
+	WorkloadKind string            `json:"workloadKind"`
+	Replicas     int               `json:"replicas"`
+	Addon        string            `json:"addon,omitempty"`
+	Values       map[string]string `json:"values,omitempty"`
+	App          *AppSpec          `json:"app,omitempty"`
+	Status       string            `json:"status"`
+	Error        string            `json:"error,omitempty"`
+	RequestedBy  string            `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)
+	CreatedAt    time.Time         `json:"createdAt"`
+	UpdatedAt    time.Time         `json:"updatedAt"`
 }
 
 // ---- Auditoría: rastro de quién hizo qué ----
