@@ -307,7 +307,7 @@ Cilium. Reprodúcelo con **`make test-hubble`** (levanta kind + Cilium + Hubble)
 - **De verdad (fase 2):** el **colector Hubble** (`--links hubble`, `make test-hubble`); la **ubicación de pods** por nodo (`make test-kube`); el **despliegue in-cluster** (`make test-deploy`); el **mTLS** agente↔control plane (`make test-mtls`); el **store Postgres** persistente y multi-réplica (`--store postgres`, `make test-postgres`); **operar cargas desde la GUI** — escalar/reiniciar vía el canal de órdenes (`make test-actions`); y la **auth de la GUI** — OIDC (PKCE) + RBAC viewer/operator (`make test-oidc`).
 - **Andamio (TODO fase 2+):**
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
-  - Falta **OIDC/RBAC en la GUI** y rotación/revocación de certificados.
+  - Seguridad ya cubierta: **OIDC/RBAC en la GUI** (`make test-oidc`), **rotación** (hojas cortas + hot-reload, `make test-rotation`) y **revocación inmediata por CRL** (`atlas-certs revoke` + `--tls-crl`, `make test-revocation`). Queda **OCSP** y acotar el egress de la NetworkPolicy.
 
 ## Roadmap
 

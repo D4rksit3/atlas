@@ -29,6 +29,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", os.Getenv("ATLAS_TLS_CERT"), "certificado de cliente del agente (activa mTLS con --tls-key y --tls-ca)")
 	tlsKey := flag.String("tls-key", os.Getenv("ATLAS_TLS_KEY"), "clave privada del agente")
 	tlsCA := flag.String("tls-ca", os.Getenv("ATLAS_TLS_CA"), "CA para verificar el certificado del control plane")
+	tlsCRL := flag.String("tls-crl", os.Getenv("ATLAS_TLS_CRL"), "CRL firmada por la CA: rechaza un servidor con cert revocado (opcional)")
 	workers := flag.Int("sample-workers", 3, "nº de nodos worker en el colector de ejemplo")
 	flag.Parse()
 
@@ -51,7 +52,7 @@ func main() {
 		log.Fatalf("para mTLS hacen falta los tres: --tls-cert, --tls-key y --tls-ca")
 	}
 	if mtlsOn {
-		tlsCfg, err := mtls.ClientTLSConfig(*tlsCert, *tlsKey, *tlsCA)
+		tlsCfg, err := mtls.ClientTLSConfig(*tlsCert, *tlsKey, *tlsCA, *tlsCRL)
 		if err != nil {
 			log.Fatalf("configurando mTLS: %v", err)
 		}

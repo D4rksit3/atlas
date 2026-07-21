@@ -26,6 +26,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", os.Getenv("ATLAS_TLS_CERT"), "certificado del servidor (activa mTLS junto con --tls-key y --tls-client-ca)")
 	tlsKey := flag.String("tls-key", os.Getenv("ATLAS_TLS_KEY"), "clave privada del servidor")
 	tlsClientCA := flag.String("tls-client-ca", os.Getenv("ATLAS_TLS_CLIENT_CA"), "CA que firma los certificados de los agentes (para verificarlos)")
+	tlsCRL := flag.String("tls-crl", os.Getenv("ATLAS_TLS_CRL"), "CRL firmada por la CA: rechaza agentes revocados en el acto (opcional; recarga en caliente)")
 	storeKind := flag.String("store", envOr("ATLAS_STORE", "memory"), "memory (una réplica, volátil) | postgres (persistente, multi-réplica)")
 	pgDSN := flag.String("postgres-dsn", os.Getenv("ATLAS_POSTGRES_DSN"), "DSN de Postgres (postgres://user:pass@host:5432/db) para --store=postgres")
 	oidcIssuer := flag.String("oidc-issuer", os.Getenv("ATLAS_OIDC_ISSUER"), "URL del IdP OIDC (activa la auth de la GUI). Vacío = sin auth (solo desarrollo)")
@@ -54,11 +55,14 @@ func main() {
 		log.Fatalf("para mTLS hacen falta los tres: --tls-cert, --tls-key y --tls-client-ca")
 	}
 	if mtlsOn {
-		tlsCfg, err := mtls.ServerTLSConfig(*tlsCert, *tlsKey, *tlsClientCA)
+		tlsCfg, err := mtls.ServerTLSConfig(*tlsCert, *tlsKey, *tlsClientCA, *tlsCRL)
 		if err != nil {
 			log.Fatalf("configurando mTLS: %v", err)
 		}
 		httpServer.TLSConfig = tlsCfg
+		if *tlsCRL != "" {
+			log.Printf("revocación activa: compruebo cada agente contra la CRL %s (recarga en caliente)", *tlsCRL)
+		}
 	}
 
 	// Arranque en goroutine para poder hacer shutdown ordenado.

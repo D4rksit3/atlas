@@ -17,7 +17,8 @@ entornos que administrar.
 | Aspecto | Estado | Qué falta para producción |
 |---|---|---|
 | Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | — |
-| Rotación de certs | ✅ **hojas de vida corta** (`--days`, 90 por defecto) + **hot-reload sin reinicio** | revocación inmediata (CRL/OCSP); hoy la mitiga la caducidad corta |
+| Rotación de certs | ✅ **hojas de vida corta** (`--days`, 90 por defecto) + **hot-reload sin reinicio** | — |
+| Revocación de certs | ✅ **CRL firmada por la CA** (`atlas-certs revoke` + `--tls-crl`), **recargada en caliente** — el agente revocado queda fuera en el siguiente handshake sin reiniciar | OCSP/distribución automática de la CRL a los agentes |
 | Aislamiento de red | ✅ **NetworkPolicy** default-deny de ingress en `atlas-system` | acotar egress (Postgres/OIDC/API); requiere CNI que aplique NetworkPolicy |
 | Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
 | AuthN/AuthZ de la GUI | ✅ **OIDC (PKCE) + RBAC** (viewer/operator) | grupos anidados, sesión/refresh, auditoría |
@@ -71,8 +72,37 @@ go run ./cmd/atlas-certs bundle --out certs --hosts atlas-cp.example.com --days 
 
 Verificado E2E (`make test-rotation`): un handshake TLS real sirve el certificado
 nuevo tras rotarlo en disco sin reiniciar, y el CLI emite hojas cortas mientras la
-CA permanece larga. **Pendiente:** revocación inmediata (CRL/OCSP); hoy la mitiga
-la caducidad corta — una hoja comprometida deja de valer en ≤`--days`.
+CA permanece larga.
+
+## Revocación de certificados (CRL)
+
+Si una hoja se compromete y no quieres esperar a que caduque, revócala en el acto.
+`atlas-certs revoke` añade el serial del certificado a una **CRL firmada por la CA**
+(`ca.crl`), acumulando sobre las revocaciones previas:
+
+```bash
+go run ./cmd/atlas-certs revoke --out certs --name prod-eks   # por nombre de agente
+go run ./cmd/atlas-certs revoke --out certs --cert certs/prod-eks.crt
+go run ./cmd/atlas-certs revoke --out certs --serial 0xA11A5
+```
+
+Pásale la CRL al control plane (y opcionalmente al agente) con `--tls-crl`:
+
+```bash
+controlplane --tls-cert … --tls-key … --tls-client-ca certs/ca.crt --tls-crl certs/ca.crl
+```
+
+El control plane **recarga la CRL en caliente** (mismo mecanismo que la hoja): en
+cuanto `ca.crl` cambia en disco, el agente revocado es **rechazado en el siguiente
+handshake sin reiniciar**. La CRL va firmada por la CA y su firma se verifica al
+cargarla, así un fichero manipulado no puede colar ni retirar revocaciones; si la
+CRL se vuelve ilegible, el control plane falla cerrado (no confía).
+
+Verificado E2E (`make test-revocation`): en un handshake TLS real, un agente cuyo
+serial entra en la CRL deja de conectar en el acto mientras los demás siguen
+entrando; y el CLI produce una CRL que `openssl` verifica contra la CA y que
+acumula revocaciones. **Pendiente:** OCSP y distribución automática de la CRL a los
+agentes (hoy la reparte quien despliega).
 
 ## Aislamiento de red (NetworkPolicy)
 
@@ -103,9 +133,10 @@ kubectl apply -f deploy/networkpolicy.yaml
 3. **Fija CORS** al dominio real de la GUI.
 4. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
    código (ya está en CI) en cada PR.
-5. ✅ **Rotación de certificados** — hecho: hojas de vida corta (`--days`) +
-   hot-reload sin reinicio. Verificado con `make test-rotation`. Pendiente:
-   revocación inmediata (CRL/OCSP).
+5. ✅ **Rotación y revocación de certificados** — hecho: hojas de vida corta
+   (`--days`) + hot-reload sin reinicio (`make test-rotation`), y **revocación
+   inmediata por CRL** (`atlas-certs revoke` + `--tls-crl`, recarga en caliente,
+   `make test-revocation`). Pendiente: OCSP.
 6. ✅ **Aislamiento de red** — hecho: `deploy/networkpolicy.yaml` (default-deny
    de ingress). Pendiente: acotar egress.
 
