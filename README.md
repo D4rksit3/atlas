@@ -65,6 +65,27 @@ make run-agent                 # un agente on-prem de ejemplo
 make web-install && make web-dev   # http://localhost:5173
 ```
 
+## Operar el clúster desde la GUI
+
+La GUI ya no es solo lectura: al clicar una carga en el mapa se abre un **Inspector**
+para **escalar** réplicas o **reiniciar** (rollout). La orden se encola en el
+control plane y viaja de vuelta al agente **en la respuesta del latido** — el
+agente la ejecuta con client-go y reporta el resultado. Así "controlar desde el
+GUI" no abre ningún puerto en el clúster (el agente sigue marcando hacia casa).
+
+```
+GUI ─POST /v1/clusters/{id}/actions─► Control Plane ─(en el latido)─► Agente ─client-go─► clúster
+                                            ▲                                     │
+                                            └────────── resultado ────────────────┘
+```
+
+Verificado E2E (`make test-actions`): escalar y reiniciar cambian el clúster de
+verdad y la acción llega a estado `done`.
+
+> ⚠️ **Sin auth todavía.** Los endpoints de acción no tienen autenticación: quien
+> alcance el control plane puede operar los clústeres. **OIDC/RBAC en la GUI es el
+> siguiente paso obligatorio** antes de exponerlo (ver [SECURITY.md](SECURITY.md)).
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de
@@ -175,7 +196,7 @@ Cilium. Reprodúcelo con **`make test-hubble`** (levanta kind + Cilium + Hubble)
 ## Lo que es de verdad y lo que es andamio
 
 - **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go** (verificado E2E contra un clúster kind real — `make test-kube`). Es el esqueleto correcto.
-- **De verdad (fase 2):** el **colector Hubble** (`--links hubble`, `make test-hubble`); la **ubicación de pods** por nodo (`make test-kube`); el **despliegue in-cluster** (`make test-deploy`); el **mTLS** agente↔control plane (`make test-mtls`); y el **store Postgres** persistente y multi-réplica (`--store postgres`, `make test-postgres`).
+- **De verdad (fase 2):** el **colector Hubble** (`--links hubble`, `make test-hubble`); la **ubicación de pods** por nodo (`make test-kube`); el **despliegue in-cluster** (`make test-deploy`); el **mTLS** agente↔control plane (`make test-mtls`); el **store Postgres** persistente y multi-réplica (`--store postgres`, `make test-postgres`); y **operar cargas desde la GUI** — escalar/reiniciar vía el canal de órdenes (`make test-actions`).
 - **Andamio (TODO fase 2+):**
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
   - Falta **OIDC/RBAC en la GUI** y rotación/revocación de certificados.

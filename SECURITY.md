@@ -19,6 +19,7 @@ entornos que administrar.
 | Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | rotación/expiración corta y revocación (CRL/OCSP) |
 | Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
 | AuthN/AuthZ de la GUI | ❌ ninguna | OIDC/SSO + RBAC por usuario |
+| Endpoints de acción (escalar/reiniciar) | ⚠️ **sin auth** | proteger con la auth de la GUI antes de exponer |
 | CORS | `*` por defecto | fija el origen: `--cors-origin https://tu-gui` |
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
 | Timeouts del servidor | ✅ read/write | añadir rate-limiting por agente |
@@ -53,7 +54,9 @@ expiración corta y revocación (CRL/OCSP); hoy los certs de hoja duran 1 año.
 
 1. ✅ **mTLS agente↔control plane** — hecho (ver arriba). El token sigue como
    defensa en profundidad, pero la identidad fuerte es el certificado.
-2. **AuthN de la GUI**: OIDC (p. ej. con tu IdP corporativo) + RBAC.
+2. **AuthN de la GUI + proteger las acciones**: OIDC + RBAC. **Urgente**: la GUI
+   ya puede escalar/reiniciar cargas (`POST /v1/clusters/{id}/actions`) y esos
+   endpoints **no tienen auth**. No expongas el control plane hasta cerrarlos.
 3. **Fija CORS** al dominio real de la GUI.
 4. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
    código (ya está en CI) en cada PR.

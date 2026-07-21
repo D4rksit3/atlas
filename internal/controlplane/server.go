@@ -45,6 +45,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/agents/register", s.handleRegister)
 	mux.HandleFunc("POST /v1/agents/{id}/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("GET /v1/topology", s.handleTopology)
+	// Acciones: la GUI encola, el agente ejecuta.
+	mux.HandleFunc("POST /v1/clusters/{id}/actions", s.handleEnqueueAction)
+	mux.HandleFunc("GET /v1/clusters/{id}/actions", s.handleListActions)
 	return withCORS(s.corsOrigin, s.withObservability(mux))
 }
 
@@ -86,21 +89,74 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &hb) {
 		return
 	}
-	err := s.store.Heartbeat(id, hb.Token, hb.Snapshot, time.Now())
+	now := time.Now()
+	err := s.store.Heartbeat(id, hb.Token, hb.Snapshot, now)
 	switch {
 	case errors.Is(err, ErrUnknownCluster):
 		s.metrics.HeartbeatErrors.Add(1)
 		writeError(w, http.StatusNotFound, "clúster no registrado: vuelve a registrarte")
+		return
 	case errors.Is(err, ErrBadToken):
 		s.metrics.HeartbeatErrors.Add(1)
 		writeError(w, http.StatusUnauthorized, "token inválido")
+		return
 	case err != nil:
 		s.metrics.HeartbeatErrors.Add(1)
 		writeError(w, http.StatusInternalServerError, "error interno")
-	default:
-		s.metrics.Heartbeats.Add(1)
-		w.WriteHeader(http.StatusNoContent)
+		return
 	}
+	s.metrics.Heartbeats.Add(1)
+
+	// El agente reporta los resultados de las acciones que ejecutó; registramos.
+	if err := s.store.RecordResults(id, hb.Results, now); err != nil {
+		log.Printf("registrando resultados de acciones de %q: %v", id, err)
+	}
+	// Y le entregamos las acciones pendientes en la respuesta (viaje de vuelta).
+	actions, err := s.store.TakeActions(id, now)
+	if err != nil {
+		log.Printf("recogiendo acciones de %q: %v", id, err)
+	}
+	writeJSON(w, http.StatusOK, api.HeartbeatResponse{Actions: actions})
+}
+
+func (s *Server) handleEnqueueAction(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req api.ActionRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	action, err := s.store.EnqueueAction(id, req, time.Now())
+	switch {
+	case errors.Is(err, ErrUnknownCluster):
+		writeError(w, http.StatusNotFound, "clúster desconocido")
+	case errors.Is(err, ErrBadAction):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
+		log.Printf("encolando acción en %q: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "no se pudo encolar la acción")
+	default:
+		s.metrics.Actions.Add(1)
+		log.Printf("acción encolada en %q: %s %s/%s", id, action.Kind, action.Namespace, action.Workload)
+		writeJSON(w, http.StatusAccepted, action)
+	}
+}
+
+func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	actions, err := s.store.ListActions(id)
+	if errors.Is(err, ErrUnknownCluster) {
+		writeError(w, http.StatusNotFound, "clúster desconocido")
+		return
+	}
+	if err != nil {
+		log.Printf("listando acciones de %q: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "no se pudieron leer las acciones")
+		return
+	}
+	if actions == nil {
+		actions = []api.Action{}
+	}
+	writeJSON(w, http.StatusOK, actions)
 }
 
 func (s *Server) handleTopology(w http.ResponseWriter, _ *http.Request) {

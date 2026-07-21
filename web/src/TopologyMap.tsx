@@ -14,9 +14,10 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 
 import { fetchTopology, type Topology, type Workload } from "./api";
-import { ServiceNode, type ServiceNodeData } from "./ServiceNode";
+import { ServiceNode, type ServiceNodeData, type WorkloadOp } from "./ServiceNode";
 import { providerColor, providerLabel, type IconKey } from "./icons";
 import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
+import { Inspector } from "./Inspector";
 
 const nodeTypes = { service: ServiceNode };
 const POLL_MS = 5000;
@@ -157,6 +158,15 @@ function build(topo: Topology | null): Built {
         color: workloadColor(w),
         icon: workloadIcon(w),
         muted: !c.online || SYSTEM_NS.has(w.namespace),
+        // Operable desde el Inspector: escalar / reiniciar.
+        op: {
+          clusterId: c.clusterId,
+          namespace: w.namespace,
+          workload: w.name,
+          workloadKind: w.kind,
+          replicas: w.replicas,
+          online: c.online,
+        },
       });
       // Pertenencia al clúster (arista muy tenue) + jerarquía de layout.
       edges.push({
@@ -209,6 +219,7 @@ function build(topo: Topology | null): Built {
 export function TopologyMap() {
   const [topo, setTopo] = useState<Topology | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<WorkloadOp | null>(null);
   const instance = useRef<ReactFlowInstance | null>(null);
 
   useEffect(() => {
@@ -249,6 +260,19 @@ export function TopologyMap() {
     return () => clearTimeout(t);
   }, [sig]);
 
+  // Mantén fresca la carga seleccionada (réplicas/online) cuando llega topología
+  // nueva, para que el Inspector refleje el resultado de una acción.
+  useEffect(() => {
+    if (!selected || !topo) return;
+    const c = topo.clusters?.find((c) => c.clusterId === selected.clusterId);
+    const w = c?.snapshot?.workloads?.find(
+      (w) => w.namespace === selected.namespace && w.name === selected.workload,
+    );
+    if (c && w && (w.replicas !== selected.replicas || c.online !== selected.online)) {
+      setSelected({ ...selected, replicas: w.replicas, online: c.online });
+    }
+  }, [topo, selected]);
+
   return (
     <div className="map-wrap">
       <div className="map-bar">
@@ -265,6 +289,11 @@ export function TopologyMap() {
           edges={edges}
           nodeTypes={nodeTypes}
           onInit={(inst) => (instance.current = inst)}
+          onNodeClick={(_, node) => {
+            const op = (node.data as ServiceNodeData).op;
+            setSelected(op ?? null);
+          }}
+          onPaneClick={() => setSelected(null)}
           fitView
           minZoom={0.2}
           proOptions={{ hideAttribution: true }}
@@ -272,6 +301,9 @@ export function TopologyMap() {
           <Background gap={28} />
           <Controls />
         </ReactFlow>
+        {selected && (
+          <Inspector op={selected} onClose={() => setSelected(null)} />
+        )}
       </div>
     </div>
   );

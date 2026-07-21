@@ -28,9 +28,11 @@ rules:
   - apiGroups: [""]
     resources: ["nodes", "pods"]
     verbs: ["get", "list", "watch"]
+  # Lectura de cargas + escritura acotada para ejecutar acciones de la GUI
+  # (escalar = update; reiniciar = patch). No puede crear ni borrar cargas.
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

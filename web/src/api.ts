@@ -54,3 +54,53 @@ export async function fetchTopology(): Promise<Topology> {
   if (!res.ok) throw new Error(`topology HTTP ${res.status}`);
   return (await res.json()) as Topology;
 }
+
+// ---- Acciones: la GUI ordena, el agente ejecuta ----
+
+export type ActionKind = "scale" | "restart";
+export type ActionStatus = "pending" | "dispatched" | "done" | "error";
+
+export interface ActionRequest {
+  kind: ActionKind;
+  namespace: string;
+  workload: string;
+  workloadKind: string;
+  replicas: number;
+}
+
+export interface Action {
+  id: string;
+  kind: ActionKind;
+  namespace: string;
+  workload: string;
+  workloadKind: string;
+  replicas: number;
+  status: ActionStatus;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Encola una acción sobre una carga de un clúster. */
+export async function postAction(
+  clusterId: string,
+  req: ActionRequest,
+): Promise<Action> {
+  const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as Action;
+}
+
+/** Lista las acciones recientes de un clúster (para ver su estado). */
+export async function fetchActions(clusterId: string): Promise<Action[]> {
+  const res = await fetch(`/v1/clusters/${encodeURIComponent(clusterId)}/actions`);
+  if (!res.ok) throw new Error(`actions HTTP ${res.status}`);
+  return (await res.json()) as Action[];
+}

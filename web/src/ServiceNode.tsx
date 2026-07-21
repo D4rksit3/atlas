@@ -3,6 +3,16 @@
 import { Handle, Position } from "reactflow";
 import { Icon, type IconKey } from "./icons";
 
+// WorkloadOp: datos que necesita el Inspector para operar una carga.
+export interface WorkloadOp {
+  clusterId: string;
+  namespace: string;
+  workload: string;
+  workloadKind: string;
+  replicas: number;
+  online: boolean;
+}
+
 export interface ServiceNodeData {
   label: string;
   sublabel?: string;
@@ -10,6 +20,7 @@ export interface ServiceNodeData {
   icon: IconKey;
   online?: boolean;
   muted?: boolean;
+  op?: WorkloadOp; // presente solo en nodos de carga operables
 }
 
 export function ServiceNode({ data }: { data: ServiceNodeData }) {

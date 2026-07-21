@@ -30,10 +30,19 @@ type RegisterResponse struct {
 	HeartbeatIntervalSeconds int    `json:"heartbeatIntervalSeconds"`
 }
 
-// Heartbeat lleva un snapshot del estado del clúster en cada latido.
+// Heartbeat lleva un snapshot del estado del clúster en cada latido, y de paso
+// reporta el resultado de las acciones que el agente ejecutó desde el anterior.
 type Heartbeat struct {
-	Token    string   `json:"token"`
-	Snapshot Snapshot `json:"snapshot"`
+	Token    string         `json:"token"`
+	Snapshot Snapshot       `json:"snapshot"`
+	Results  []ActionResult `json:"results,omitempty"`
+}
+
+// HeartbeatResponse es lo que el control plane devuelve en cada latido: las
+// acciones pendientes que el agente debe ejecutar. Así las órdenes viajan de
+// vuelta por la MISMA conexión saliente — sin abrir puertos en el clúster.
+type HeartbeatResponse struct {
+	Actions []Action `json:"actions,omitempty"`
 }
 
 // ---- Modelo de topología ----
@@ -74,6 +83,52 @@ type Snapshot struct {
 	Nodes     []Node     `json:"nodes"`
 	Workloads []Workload `json:"workloads"`
 	Links     []Link     `json:"links"`
+}
+
+// ---- Acciones: la GUI ordena, el agente ejecuta ----
+
+// Estados de una acción a lo largo de su vida.
+const (
+	ActionPending    = "pending"    // encolada por la GUI, aún no entregada
+	ActionDispatched = "dispatched" // entregada al agente en un latido
+	ActionDone       = "done"       // el agente la ejecutó con éxito
+	ActionError      = "error"      // el agente falló al ejecutarla
+)
+
+// Tipos de acción soportados.
+const (
+	ActionScale   = "scale"   // cambiar el nº de réplicas de una carga
+	ActionRestart = "restart" // reinicio suave (rollout) de una carga
+)
+
+// ActionRequest es lo que la GUI envía para encolar una acción sobre una carga.
+type ActionRequest struct {
+	Kind         string `json:"kind"`         // scale | restart
+	Namespace    string `json:"namespace"`    // namespace de la carga
+	Workload     string `json:"workload"`     // nombre de la carga
+	WorkloadKind string `json:"workloadKind"` // Deployment | StatefulSet
+	Replicas     int    `json:"replicas"`     // objetivo (solo para scale)
+}
+
+// Action es una orden con su estado, tal como la ve el agente y la GUI.
+type Action struct {
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	Namespace    string    `json:"namespace"`
+	Workload     string    `json:"workload"`
+	WorkloadKind string    `json:"workloadKind"`
+	Replicas     int       `json:"replicas"`
+	Status       string    `json:"status"`
+	Error        string    `json:"error,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// ActionResult lo reporta el agente tras intentar ejecutar una acción.
+type ActionResult struct {
+	ID    string `json:"id"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 // ---- Vista para la GUI (control plane -> GUI) ----

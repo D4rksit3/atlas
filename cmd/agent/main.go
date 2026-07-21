@@ -60,7 +60,9 @@ func main() {
 	}
 
 	// Selección de colector: 'kube' lee un clúster real; 'sample' datos ficticios.
+	// El actuador (ejecuta acciones) solo existe en modo kube.
 	var collector agent.Collector
+	var actuator agent.Actuator
 	switch *collectorMode {
 	case "kube":
 		kc, err := agent.NewKubeCollector(*kubeconfig)
@@ -68,10 +70,15 @@ func main() {
 			log.Fatalf("no pude inicializar el colector kube: %v", err)
 		}
 		collector = kc
-		log.Printf("colector: kube (leyendo un clúster real)")
+		act, err := agent.NewKubeActuator(*kubeconfig)
+		if err != nil {
+			log.Fatalf("no pude inicializar el actuador kube: %v", err)
+		}
+		actuator = act
+		log.Printf("colector: kube (leyendo un clúster real; acciones habilitadas)")
 	case "sample":
 		collector = agent.NewSampleCollector(cfg.Provider, *workers)
-		log.Printf("colector: sample (datos de ejemplo)")
+		log.Printf("colector: sample (datos de ejemplo; acciones deshabilitadas)")
 	default:
 		log.Fatalf("colector desconocido %q (usa: sample | kube)", *collectorMode)
 	}
@@ -87,7 +94,7 @@ func main() {
 		log.Fatalf("modo de enlaces desconocido %q (usa: none | hubble)", *linksMode)
 	}
 
-	a := agent.New(cfg, collector)
+	a := agent.New(cfg, collector, actuator)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

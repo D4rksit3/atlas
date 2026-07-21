@@ -29,18 +29,22 @@ type Config struct {
 }
 
 // Agent marca hacia casa: se registra y luego late periódicamente. NUNCA abre
-// puertos de entrada — es el clúster quien inicia la conexión saliente.
+// puertos de entrada — es el clúster quien inicia la conexión saliente. Las
+// órdenes de la GUI viajan de vuelta en la respuesta del latido.
 type Agent struct {
 	cfg       Config
 	collector Collector
+	actuator  Actuator
 	http      *http.Client
 
-	token    string
-	interval time.Duration
+	token          string
+	interval       time.Duration
+	pendingResults []api.ActionResult // resultados a reportar en el próximo latido
 }
 
-// New construye un agente con un colector dado.
-func New(cfg Config, collector Collector) *Agent {
+// New construye un agente con un colector y, opcionalmente, un actuador (para
+// ejecutar acciones). Si actuator es nil, el agente rechaza las acciones.
+func New(cfg Config, collector Collector, actuator Actuator) *Agent {
 	client := &http.Client{Timeout: 10 * time.Second}
 	if cfg.TLSConfig != nil {
 		client.Transport = &http.Transport{TLSClientConfig: cfg.TLSConfig}
@@ -48,6 +52,7 @@ func New(cfg Config, collector Collector) *Agent {
 	return &Agent{
 		cfg:       cfg,
 		collector: collector,
+		actuator:  actuator,
 		http:      client,
 		interval:  10 * time.Second,
 	}
@@ -136,9 +141,38 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		log.Printf("colector falló, salto este latido: %v", err)
 		return nil
 	}
-	hb := api.Heartbeat{Token: a.token, Snapshot: snap}
+	hb := api.Heartbeat{Token: a.token, Snapshot: snap, Results: a.pendingResults}
 	path := "/v1/agents/" + a.cfg.ClusterID + "/heartbeat"
-	return a.post(ctx, path, hb, nil)
+
+	var resp api.HeartbeatResponse
+	if err := a.post(ctx, path, hb, &resp); err != nil {
+		return err // no limpiamos pendingResults: se reintentan en el próximo latido
+	}
+	// El control plane aceptó el latido (y con él nuestros resultados): límpialos.
+	a.pendingResults = nil
+
+	// Ejecuta las acciones que llegaron de vuelta; sus resultados irán en el
+	// próximo latido.
+	for _, act := range resp.Actions {
+		a.pendingResults = append(a.pendingResults, a.execute(ctx, act))
+	}
+	return nil
+}
+
+// execute corre una acción con el actuador (o la rechaza si no hay actuador).
+func (a *Agent) execute(ctx context.Context, act api.Action) api.ActionResult {
+	if a.actuator == nil {
+		return api.ActionResult{ID: act.ID, OK: false,
+			Error: "este agente no puede ejecutar acciones (arráncalo con --collector kube)"}
+	}
+	log.Printf("ejecutando acción %s: %s %s/%s", act.ID, act.Kind, act.Namespace, act.Workload)
+	res := a.actuator.Execute(ctx, act)
+	if res.OK {
+		log.Printf("acción %s ejecutada", act.ID)
+	} else {
+		log.Printf("acción %s falló: %s", act.ID, res.Error)
+	}
+	return res
 }
 
 // post hace un POST JSON y decodifica la respuesta en out (si out != nil).

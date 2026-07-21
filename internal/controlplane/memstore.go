@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -10,8 +11,9 @@ import (
 
 // clusterState es el estado interno de un clúster registrado en memoria.
 type clusterState struct {
-	view  api.ClusterView
-	token string
+	view    api.ClusterView
+	token   string
+	actions []api.Action // cola + historial de acciones
 }
 
 // MemStore es el registro en memoria de clústeres. Simple y sin dependencias;
@@ -91,5 +93,82 @@ func (s *MemStore) Topology(now time.Time) (api.Topology, error) {
 	sort.Slice(out.Clusters, func(i, j int) bool {
 		return out.Clusters[i].ClusterID < out.Clusters[j].ClusterID
 	})
+	return out, nil
+}
+
+func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, now time.Time) (api.Action, error) {
+	if err := validActionRequest(req); err != nil {
+		return api.Action{}, fmt.Errorf("%w: %v", ErrBadAction, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cs, ok := s.clusters[clusterID]
+	if !ok {
+		return api.Action{}, ErrUnknownCluster
+	}
+	a := api.Action{
+		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
+		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
+		Status: api.ActionPending, CreatedAt: now, UpdatedAt: now,
+	}
+	cs.actions = append(cs.actions, a)
+	return a, nil
+}
+
+func (s *MemStore) TakeActions(clusterID string, now time.Time) ([]api.Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cs, ok := s.clusters[clusterID]
+	if !ok {
+		return nil, ErrUnknownCluster
+	}
+	var pending []api.Action
+	for i := range cs.actions {
+		if cs.actions[i].Status == api.ActionPending {
+			cs.actions[i].Status = api.ActionDispatched
+			cs.actions[i].UpdatedAt = now
+			pending = append(pending, cs.actions[i])
+		}
+	}
+	return pending, nil
+}
+
+func (s *MemStore) RecordResults(clusterID string, results []api.ActionResult, now time.Time) error {
+	if len(results) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cs, ok := s.clusters[clusterID]
+	if !ok {
+		return ErrUnknownCluster
+	}
+	byID := make(map[string]api.ActionResult, len(results))
+	for _, r := range results {
+		byID[r.ID] = r
+	}
+	for i := range cs.actions {
+		if r, ok := byID[cs.actions[i].ID]; ok {
+			if r.OK {
+				cs.actions[i].Status = api.ActionDone
+			} else {
+				cs.actions[i].Status = api.ActionError
+				cs.actions[i].Error = r.Error
+			}
+			cs.actions[i].UpdatedAt = now
+		}
+	}
+	return nil
+}
+
+func (s *MemStore) ListActions(clusterID string) ([]api.Action, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cs, ok := s.clusters[clusterID]
+	if !ok {
+		return nil, ErrUnknownCluster
+	}
+	out := make([]api.Action, len(cs.actions))
+	copy(out, cs.actions)
 	return out, nil
 }

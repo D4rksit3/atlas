@@ -29,7 +29,21 @@ CREATE TABLE IF NOT EXISTS clusters (
     agent_version TEXT        NOT NULL DEFAULT '',
     last_seen     TIMESTAMPTZ NOT NULL,
     snapshot      JSONB       NOT NULL DEFAULT '{}'::jsonb
-);`
+);
+CREATE TABLE IF NOT EXISTS actions (
+    id            TEXT PRIMARY KEY,
+    cluster_id    TEXT        NOT NULL REFERENCES clusters(cluster_id) ON DELETE CASCADE,
+    kind          TEXT        NOT NULL,
+    namespace     TEXT        NOT NULL,
+    workload      TEXT        NOT NULL,
+    workload_kind TEXT        NOT NULL,
+    replicas      INT         NOT NULL DEFAULT 0,
+    status        TEXT        NOT NULL,
+    error         TEXT        NOT NULL DEFAULT '',
+    created_at    TIMESTAMPTZ NOT NULL,
+    updated_at    TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS actions_cluster_status ON actions(cluster_id, status);`
 
 // NewPgStore conecta a Postgres (DSN estilo postgres://user:pass@host:port/db) y
 // crea la tabla si no existe. offlineAfter es el umbral para marcar offline.
@@ -140,4 +154,96 @@ func (s *PgStore) Topology(now time.Time) (api.Topology, error) {
 		return out, fmt.Errorf("iterando clústeres: %w", err)
 	}
 	return out, nil
+}
+
+func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, now time.Time) (api.Action, error) {
+	if err := validActionRequest(req); err != nil {
+		return api.Action{}, fmt.Errorf("%w: %v", ErrBadAction, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM clusters WHERE cluster_id = $1)`, clusterID).Scan(&exists); err != nil {
+		return api.Action{}, fmt.Errorf("comprobando clúster: %w", err)
+	}
+	if !exists {
+		return api.Action{}, ErrUnknownCluster
+	}
+	a := api.Action{
+		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
+		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
+		Status: api.ActionPending, CreatedAt: now, UpdatedAt: now,
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO actions (id, cluster_id, kind, namespace, workload, workload_kind, replicas, status, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+		a.ID, clusterID, a.Kind, a.Namespace, a.Workload, a.WorkloadKind, a.Replicas, a.Status, now)
+	if err != nil {
+		return api.Action{}, fmt.Errorf("encolando acción: %w", err)
+	}
+	return a, nil
+}
+
+func (s *PgStore) TakeActions(clusterID string, now time.Time) ([]api.Action, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Marca como 'dispatched' las pendientes y las devuelve, en una sola sentencia.
+	rows, err := s.pool.Query(ctx, `
+		UPDATE actions SET status = $2, updated_at = $3
+		WHERE cluster_id = $1 AND status = $4
+		RETURNING id, kind, namespace, workload, workload_kind, replicas, status, error, created_at, updated_at`,
+		clusterID, api.ActionDispatched, now, api.ActionPending)
+	if err != nil {
+		return nil, fmt.Errorf("recogiendo acciones: %w", err)
+	}
+	defer rows.Close()
+	return scanActions(rows)
+}
+
+func (s *PgStore) RecordResults(clusterID string, results []api.ActionResult, now time.Time) error {
+	if len(results) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, r := range results {
+		status, errMsg := api.ActionDone, ""
+		if !r.OK {
+			status, errMsg = api.ActionError, r.Error
+		}
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE actions SET status = $3, error = $4, updated_at = $5
+			WHERE cluster_id = $1 AND id = $2`,
+			clusterID, r.ID, status, errMsg, now); err != nil {
+			return fmt.Errorf("registrando resultado de %s: %w", r.ID, err)
+		}
+	}
+	return nil
+}
+
+func (s *PgStore) ListActions(clusterID string) ([]api.Action, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, kind, namespace, workload, workload_kind, replicas, status, error, created_at, updated_at
+		FROM actions WHERE cluster_id = $1 ORDER BY created_at`, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("listando acciones: %w", err)
+	}
+	defer rows.Close()
+	return scanActions(rows)
+}
+
+func scanActions(rows pgx.Rows) ([]api.Action, error) {
+	var out []api.Action
+	for rows.Next() {
+		var a api.Action
+		if err := rows.Scan(&a.ID, &a.Kind, &a.Namespace, &a.Workload, &a.WorkloadKind,
+			&a.Replicas, &a.Status, &a.Error, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("escaneando acción: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
