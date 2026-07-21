@@ -113,9 +113,23 @@ El colector kube usa `rest.InClusterConfig()` si corre como Pod, o el kubeconfig
 si corre fuera. Los permisos son **mínimos** (solo lectura de nodos y cargas) —
 ver `deploy/agent.yaml`.
 
+### Probarlo de verdad en 1 comando
+
+Si tienes **docker + kind + kubectl**, este script levanta un clúster real de 3
+nodos, despliega cargas, corre el agente en modo kube y **verifica que el mapa
+coincide con el clúster** (incluida una prueba de mapa vivo escalando un
+Deployment). Limpia todo al terminar:
+
+```bash
+make test-kube        # o:  ./scripts/test-kube.sh
+```
+
+> Verificado E2E contra Kubernetes 1.30 (kind): 3 nodos con sus roles, cargas
+> reales de todos los namespaces, y actualización en vivo al escalar réplicas.
+
 ## Lo que es de verdad y lo que es andamio
 
-- **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go**. Es el esqueleto correcto.
+- **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go** (verificado E2E contra un clúster kind real — `make test-kube`). Es el esqueleto correcto.
 - **Andamio (TODO fase 2+):**
   - **Conexiones (Links):** las conexiones reales entre servicios salen de **Hubble** (Cilium), no de la API de K8s. El colector deja `Links` vacío hasta integrar Hubble.
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
