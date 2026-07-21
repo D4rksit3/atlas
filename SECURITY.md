@@ -16,7 +16,9 @@ entornos que administrar.
 
 | Aspecto | Estado | Qué falta para producción |
 |---|---|---|
-| Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | rotación/expiración corta y revocación (CRL/OCSP) |
+| Identidad del agente | ✅ **mTLS** con certificado por agente (+ token) | — |
+| Rotación de certs | ✅ **hojas de vida corta** (`--days`, 90 por defecto) + **hot-reload sin reinicio** | revocación inmediata (CRL/OCSP); hoy la mitiga la caducidad corta |
+| Aislamiento de red | ✅ **NetworkPolicy** default-deny de ingress en `atlas-system` | acotar egress (Postgres/OIDC/API); requiere CNI que aplique NetworkPolicy |
 | Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
 | AuthN/AuthZ de la GUI | ✅ **OIDC (PKCE) + RBAC** (viewer/operator) | grupos anidados, sesión/refresh, auditoría |
 | Endpoints de acción (escalar/reiniciar) | ✅ protegidos: exigen rol **operator** | — |
@@ -51,8 +53,40 @@ agent --control-plane https://atlas-cp.example.com \
 ```
 
 Verificado E2E (`make test-mtls`): sin certificado → rechazado; certificado de
-otra CA → rechazado; certificado válido → registra. **Pendiente:** rotación con
-expiración corta y revocación (CRL/OCSP); hoy los certs de hoja duran 1 año.
+otra CA → rechazado; certificado válido → registra.
+
+### Rotación de certificados (implementado)
+
+Las hojas (servidor y agente) se emiten con **vida corta** — `atlas-certs … --days
+N`, **90 días por defecto** — mientras que la CA sigue durando años. El control
+plane y el agente **recargan la hoja en caliente**: `internal/mtls` relee el par
+cert/key del disco cuando cambia (comparando mtime+size) y lo usa en el siguiente
+handshake **sin reiniciar el proceso**. Así, cuando cert-manager renueva el Secret
+montado (o reemites con `atlas-certs`), la rotación es transparente.
+
+```bash
+go run ./cmd/atlas-certs bundle --out certs --hosts atlas-cp.example.com --days 30
+# reemitir cuando toque; el proceso en marcha lo recoge solo, sin downtime.
+```
+
+Verificado E2E (`make test-rotation`): un handshake TLS real sirve el certificado
+nuevo tras rotarlo en disco sin reiniciar, y el CLI emite hojas cortas mientras la
+CA permanece larga. **Pendiente:** revocación inmediata (CRL/OCSP); hoy la mitiga
+la caducidad corta — una hoja comprometida deja de valer en ≤`--days`.
+
+## Aislamiento de red (NetworkPolicy)
+
+`deploy/networkpolicy.yaml` aplica **default-deny de ingress** en `atlas-system` y
+abre solo lo imprescindible: la GUI (:8080, punto de entrada tras el Ingress y
+protegida por OIDC), el control plane (:8080, solo desde la GUI y el agente del
+mismo clúster) y el agente sin ingress alguno (coherente con el modelo saliente).
+El egress se deja abierto a propósito (control plane → Postgres/OIDC, agente → API
+de Kubernetes y DNS); acotarlo es el siguiente paso. Requiere un CNI que aplique
+NetworkPolicy (Cilium, Calico; k3s/k3d de serie).
+
+```bash
+kubectl apply -f deploy/networkpolicy.yaml
+```
 
 ## Cómo endurecerlo (orden recomendado)
 
@@ -69,7 +103,11 @@ expiración corta y revocación (CRL/OCSP); hoy los certs de hoja duran 1 año.
 3. **Fija CORS** al dominio real de la GUI.
 4. **Escaneo continuo**: Trivy sobre las imágenes y `govulncheck` sobre el
    código (ya está en CI) en cada PR.
-5. **Rotación de certificados**: expiración corta + emisión automática.
+5. ✅ **Rotación de certificados** — hecho: hojas de vida corta (`--days`) +
+   hot-reload sin reinicio. Verificado con `make test-rotation`. Pendiente:
+   revocación inmediata (CRL/OCSP).
+6. ✅ **Aislamiento de red** — hecho: `deploy/networkpolicy.yaml` (default-deny
+   de ingress). Pendiente: acotar egress.
 
 ## Reportar una vulnerabilidad
 

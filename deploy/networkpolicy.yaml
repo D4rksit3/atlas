@@ -1,0 +1,78 @@
+# Aislamiento de red del namespace atlas-system.
+#
+#   kubectl apply -f deploy/networkpolicy.yaml
+#
+# Modelo: DENEGAR TODO el ingress por defecto y abrir solo lo necesario. Reduce el
+# movimiento lateral si otro pod del clúster se ve comprometido. Requiere un CNI
+# que aplique NetworkPolicy (Cilium, Calico; k3s/k3d lo aplican de serie).
+#
+# Egress se deja abierto A PROPÓSITO: el control plane sale a Postgres/OIDC y el
+# agente a la API de Kubernetes y a DNS. Bloquear egress es el siguiente paso
+# (hay que enumerar esos destinos) — ver SECURITY.md.
+---
+# 1) Default-deny de ingress para TODO el namespace. Cualquier entrada no
+#    permitida explícitamente abajo queda bloqueada.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: atlas-system
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# 2) La GUI es el punto de entrada público: recibe del Ingress Controller (que
+#    vive en otro namespace) en el puerto 8080. Sin restricción de origen porque
+#    el controlador puede estar en cualquier namespace y la propia GUI ya está
+#    protegida por OIDC.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-ingress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-web }
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 8080 }
+---
+# 3) El control plane SOLO acepta conexiones de la GUI (proxy de /v1) y del agente
+#    del MISMO clúster, al puerto 8080. Nada más del clúster puede alcanzarlo.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-controlplane-ingress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-controlplane }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: atlas-web } }
+        - podSelector: { matchLabels: { app: atlas-agent } }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    # Agentes de OTROS clústeres entran por el Ingress Controller con mTLS
+    # (SSL passthrough). Descomenta y ajusta el selector del namespace del
+    # controlador (ejemplo para ingress-nginx):
+    # - from:
+    #     - namespaceSelector:
+    #         matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+    #   ports:
+    #     - { protocol: TCP, port: 8080 }
+---
+# 4) El agente NO recibe conexiones entrantes (modelo saliente: siempre marca él
+#    hacia el control plane). Esta policy sin reglas de ingress, combinada con el
+#    default-deny, lo deja sin ingress alguno. Explícito = intención clara.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-agent-ingress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-agent }
+  policyTypes: [Ingress]

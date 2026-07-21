@@ -28,6 +28,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,16 +47,16 @@ func main() {
 	case "init":
 		mustInitCA(fs.out)
 	case "server":
-		mustServerCert(fs.out, fs.hosts)
+		mustServerCert(fs.out, fs.hosts, fs.days)
 	case "client":
 		if fs.name == "" {
 			fatal(fmt.Errorf("--name es obligatorio para 'client'"))
 		}
-		mustClientCert(fs.out, fs.name)
+		mustClientCert(fs.out, fs.name, fs.days)
 	case "bundle":
 		mustInitCA(fs.out)
-		mustServerCert(fs.out, fs.hosts)
-		mustClientCert(fs.out, "agent")
+		mustServerCert(fs.out, fs.hosts, fs.days)
+		mustClientCert(fs.out, "agent", fs.days)
 	default:
 		usage()
 	}
@@ -83,14 +84,14 @@ func mustInitCA(out string) {
 	fmt.Printf("✓ CA creada en %s/ca.crt\n", out)
 }
 
-func mustServerCert(out string, hosts []string) {
+func mustServerCert(out string, hosts []string, days int) {
 	caCert, caKey := loadCA(out)
 	key := mustKey()
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
 		Subject:      pkix.Name{CommonName: "atlas-controlplane", Organization: []string{"Atlas"}},
 		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(1, 0, 0), // hoja: 1 año
+		NotAfter:     leafExpiry(days), // hoja de vida corta (rotación)
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
@@ -108,10 +109,10 @@ func mustServerCert(out string, hosts []string) {
 	must(err)
 	writeCert(filepath.Join(out, "server.crt"), der)
 	writeKey(filepath.Join(out, "server.key"), key)
-	fmt.Printf("✓ certificado de servidor para %s\n", strings.Join(hosts, ", "))
+	fmt.Printf("✓ certificado de servidor para %s (válido %d días)\n", strings.Join(hosts, ", "), leafDays(days))
 }
 
-func mustClientCert(out, name string) {
+func mustClientCert(out, name string, days int) {
 	caCert, caKey := loadCA(out)
 	key := mustKey()
 	tmpl := &x509.Certificate{
@@ -119,7 +120,7 @@ func mustClientCert(out, name string) {
 		// El CN identifica al agente (útil para trazas/autorización futura).
 		Subject:     pkix.Name{CommonName: name, Organization: []string{"Atlas Agents"}},
 		NotBefore:   time.Now().Add(-time.Hour),
-		NotAfter:    time.Now().AddDate(1, 0, 0),
+		NotAfter:    leafExpiry(days),
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
@@ -127,8 +128,20 @@ func mustClientCert(out, name string) {
 	must(err)
 	writeCert(filepath.Join(out, name+".crt"), der)
 	writeKey(filepath.Join(out, name+".key"), key)
-	fmt.Printf("✓ certificado de cliente para el agente %q\n", name)
+	fmt.Printf("✓ certificado de cliente para el agente %q (válido %d días)\n", name, leafDays(days))
 }
+
+// leafDays devuelve los días de validez de una hoja (default 90 si no se indica).
+func leafDays(days int) int {
+	if days <= 0 {
+		return 90
+	}
+	return days
+}
+
+// leafExpiry es la fecha de expiración de una hoja: certs cortos para forzar
+// rotación frecuente (con el hot-reload de internal/mtls no requiere reinicio).
+func leafExpiry(days int) time.Time { return time.Now().AddDate(0, 0, leafDays(days)) }
 
 // ---- helpers de PKI ----
 
@@ -182,6 +195,7 @@ type flags struct {
 	out   string
 	hosts []string
 	name  string
+	days  int
 }
 
 func newFlags(cmd string) *flags { return &flags{out: "certs"} }
@@ -198,6 +212,13 @@ func (f *flags) parse(args []string) error {
 		case "--name":
 			i++
 			f.name = arg(args, i)
+		case "--days":
+			i++
+			d, err := strconv.Atoi(arg(args, i))
+			if err != nil || d <= 0 {
+				return fmt.Errorf("--days debe ser un entero positivo (días de validez de la hoja)")
+			}
+			f.days = d
 		default:
 			return fmt.Errorf("opción desconocida: %s", args[i])
 		}
@@ -226,9 +247,12 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `atlas-certs — PKI mínima para el mTLS de Atlas
 
   atlas-certs init   --out DIR
-  atlas-certs server --out DIR --hosts host1,host2,ip
-  atlas-certs client --out DIR --name NOMBRE
-  atlas-certs bundle --out DIR --hosts host1,ip   (init + server + un cliente)`)
+  atlas-certs server --out DIR --hosts host1,host2,ip [--days N]
+  atlas-certs client --out DIR --name NOMBRE [--days N]
+  atlas-certs bundle --out DIR --hosts host1,ip [--days N]   (init + server + un cliente)
+
+  --days  validez de la hoja (server/cliente), default 90. La CA dura 10 años.
+          Certs cortos + hot-reload del control plane/agente = rotación sin reinicio.`)
 	os.Exit(2)
 }
 

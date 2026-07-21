@@ -49,6 +49,9 @@ test-deploy: ## E2E: despliega Atlas DENTRO de kind (control plane+GUI+agente) y
 test-mtls: ## E2E: verifica el mTLS agente↔control plane (no necesita clúster)
 	./scripts/test-mtls.sh
 
+test-rotation: ## E2E: rotación de certs (hojas cortas por CLI + hot-reload sin reinicio)
+	./scripts/test-rotation.sh
+
 test-postgres: ## E2E: store Postgres — multi-réplica + persistencia (levanta su propio Postgres)
 	./scripts/test-postgres.sh
 
