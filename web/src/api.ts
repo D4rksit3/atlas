@@ -9,11 +9,17 @@ export interface Node {
   ready: boolean;
 }
 
+export interface Placement {
+  node: string;
+  pods: number;
+}
+
 export interface Workload {
   name: string;
   namespace: string;
   kind: string;
   replicas: number;
+  placement?: Placement[] | null;
 }
 
 export interface Link {

@@ -31,6 +31,7 @@ const SYSTEM_NS = new Set([
 ]);
 
 const LINK_COLOR = "#F0932B"; // naranja: conexiones observadas (Hubble)
+const PLACE_COLOR = "#16B5A5"; // teal: ubicación de pods (carga → nodo)
 const CP_NODE = "#7C5CE6"; // violeta: nodo control-plane
 const WORKER = "#0E9E6E"; // verde: nodo worker
 
@@ -120,8 +121,10 @@ function build(topo: Topology | null): Built {
     layoutEdges.push({ source: "control-plane", target: clusterId });
 
     // Nodos (máquinas): control-plane + workers. Un servidor = un nodo.
+    const nodeIdByName = new Map<string, string>();
     allNodes.forEach((n, j) => {
       const nid = `${clusterId}-node-${j}`;
+      nodeIdByName.set(n.name, nid);
       const isCP = n.role === "control-plane";
       add(nid, {
         label: n.name,
@@ -163,6 +166,24 @@ function build(topo: Topology | null): Built {
         style: { stroke: color, opacity: 0.12 },
       });
       layoutEdges.push({ source: layoutParent, target: id });
+
+      // Ubicación: en qué nodos corren sus pods (solo apps, para no saturar).
+      if (!SYSTEM_NS.has(w.namespace)) {
+        (w.placement ?? []).forEach((pl) => {
+          const nodeId = nodeIdByName.get(pl.node);
+          if (!nodeId) return;
+          edges.push({
+            id: `e-place-${id}-${pl.node}`,
+            source: id,
+            target: nodeId,
+            label: `×${pl.pods}`,
+            labelBgPadding: [4, 2],
+            labelStyle: { fill: PLACE_COLOR, fontSize: 10, fontWeight: 600 },
+            labelBgStyle: { fill: "var(--panel, #131c2c)", fillOpacity: 0.85 },
+            style: { stroke: PLACE_COLOR, strokeWidth: 1.2, strokeDasharray: "4 4", opacity: 0.55 },
+          });
+        });
+      }
     });
 
     // Conexiones REALES entre servicios (observadas por Hubble).

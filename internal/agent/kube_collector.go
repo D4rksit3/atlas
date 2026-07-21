@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -106,9 +108,84 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 		})
 	}
 
+	// Ubicación de pods: en qué nodos corre cada carga y cuántos pods en cada uno.
+	// Es best-effort: si falla (p. ej. sin permiso de pods), seguimos sin ella.
+	if err := c.fillPlacement(ctx, snap.Workloads); err != nil {
+		return snap, fmt.Errorf("listando pods: %w", err)
+	}
+
 	// TODO(fase 2): poblar snap.Links desde Hubble (Cilium) — las conexiones
 	// reales entre servicios no están en la API de Kubernetes.
 	return snap, nil
+}
+
+// fillPlacement lista los pods y rellena Workload.Placement con el reparto por
+// nodo. Un pod se atribuye a su carga dueña vía ownerReferences (ReplicaSet ->
+// Deployment) y al nodo donde está agendado (spec.nodeName).
+func (c *KubeCollector) fillPlacement(ctx context.Context, workloads []api.Workload) error {
+	pods, err := c.client.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	// clave "namespace/carga" -> (nodo -> nº de pods).
+	spread := make(map[string]map[string]int)
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		node := p.Spec.NodeName
+		if node == "" {
+			continue // aún no agendado
+		}
+		name := ownerWorkload(p)
+		if name == "" {
+			continue
+		}
+		key := p.Namespace + "/" + name
+		if spread[key] == nil {
+			spread[key] = make(map[string]int)
+		}
+		spread[key][node]++
+	}
+
+	for i := range workloads {
+		w := &workloads[i]
+		byNode := spread[w.Namespace+"/"+w.Name]
+		if len(byNode) == 0 {
+			continue
+		}
+		placement := make([]api.Placement, 0, len(byNode))
+		for node, n := range byNode {
+			placement = append(placement, api.Placement{Node: node, Pods: n})
+		}
+		// Orden estable (más pods primero, luego por nombre) para un mapa consistente.
+		sort.Slice(placement, func(a, b int) bool {
+			if placement[a].Pods != placement[b].Pods {
+				return placement[a].Pods > placement[b].Pods
+			}
+			return placement[a].Node < placement[b].Node
+		})
+		w.Placement = placement
+	}
+	return nil
+}
+
+// ownerWorkload devuelve el nombre de la carga dueña de un pod. Para pods de un
+// Deployment, el dueño directo es un ReplicaSet ("<deploy>-<hash>"): le quitamos
+// el sufijo de hash. Para StatefulSet/DaemonSet/Job, el nombre del dueño ya es
+// el de la carga. Devuelve "" si el pod no tiene controlador.
+func ownerWorkload(p *corev1.Pod) string {
+	for _, o := range p.OwnerReferences {
+		if o.Controller == nil || !*o.Controller {
+			continue
+		}
+		if o.Kind == "ReplicaSet" {
+			if i := strings.LastIndex(o.Name, "-"); i > 0 {
+				return o.Name[:i]
+			}
+		}
+		return o.Name
+	}
+	return ""
 }
 
 // nodeRole distingue control-plane de worker por las labels estándar de K8s.

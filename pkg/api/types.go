@@ -45,12 +45,22 @@ type Node struct {
 	Ready bool   `json:"ready"`
 }
 
+// Placement dice cuántos pods de una carga corren en un nodo concreto. Una carga
+// puede repartir sus réplicas entre varios nodos, así que lleva una lista.
+type Placement struct {
+	Node string `json:"node"`
+	Pods int    `json:"pods"`
+}
+
 // Workload es una carga desplegada (Deployment, StatefulSet, ...).
 type Workload struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	Kind      string `json:"kind"`
 	Replicas  int    `json:"replicas"`
+	// Placement: en qué nodos corren sus pods y cuántos en cada uno. Vacío si el
+	// colector no pudo leer pods (p. ej. sin permiso) o si la carga no tiene pods.
+	Placement []Placement `json:"placement,omitempty"`
 }
 
 // Link es una conexión observada entre dos cargas (fuente de datos: Hubble).
