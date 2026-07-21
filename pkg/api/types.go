@@ -150,6 +150,8 @@ func Addons() []AddonInfo {
 			DetectWorkload: "argocd-server", Description: "Despliegue continuo (GitOps)"},
 		{Key: "kyverno", Name: "Kyverno", Category: "seguridad", Namespace: "kyverno",
 			DetectWorkload: "kyverno-admission-controller", Description: "Políticas de admisión y seguridad"},
+		{Key: "falco", Name: "Falco", Category: "seguridad", Namespace: "falco",
+			DetectWorkload: "falco", Description: "Detección de amenazas en runtime (eBPF)"},
 		{Key: "metallb", Name: "MetalLB", Category: "redes", Namespace: "metallb-system",
 			DetectWorkload: "controller", Description: "LoadBalancer para bare-metal/on-prem"},
 		{Key: "metrics-server", Name: "Metrics Server", Category: "monitoreo", Namespace: "kube-system",

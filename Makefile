@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -72,6 +72,9 @@ test-sync: ## E2E: sincronizar / revertir un proyecto GitOps desde la GUI
 
 test-addons: ## E2E: catálogo de complementos (instalar Kyverno) desde la GUI
 	./scripts/test-addons.sh
+
+test-helm: ## E2E: instalar un complemento Helm (Falco) desde la GUI
+	./scripts/test-helm.sh
 
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1

@@ -13,6 +13,16 @@
 # es amplio. Revísalo y decide conscientemente. Para atar más fino, sustituye el
 # cluster-admin por un ClusterRole a medida con los verbos/recursos que instala
 # tu complemento.
+#
+# COMPLEMENTOS HELM (p. ej. Falco): el SDK de Helm necesita un directorio de caché
+# escribible. Como el agente corre con readOnlyRootFilesystem, añade a su
+# Deployment (deploy/agent.yaml) un volumen escribible y estas variables:
+#   volumeMounts: [{ name: helm-cache, mountPath: /helm }]
+#   volumes:      [{ name: helm-cache, emptyDir: {} }]
+#   env:
+#     - { name: HELM_CACHE_HOME,  value: /helm/cache }
+#     - { name: HELM_CONFIG_HOME, value: /helm/config }
+#     - { name: HELM_DATA_HOME,   value: /helm/data }
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

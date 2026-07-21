@@ -20,6 +20,7 @@ import (
 	memcache "k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/retry"
 
@@ -34,10 +35,20 @@ type Actuator interface {
 
 // addonSpec describe un complemento VETADO que se puede instalar. El catálogo es
 // cerrado a propósito: el agente nunca aplica manifiestos arbitrarios de la GUI,
-// solo estos, con la versión fijada.
+// solo estos, con la versión fijada. Dos formas: manifiesto (url) o chart de Helm.
 type addonSpec struct {
 	namespace string
-	url       string
+	url       string     // manifiesto único (server-side apply)
+	helm      *helmChart // o un chart de Helm (SDK compilado en el agente)
+}
+
+// helmChart describe un chart de Helm vetado (repo + chart + versión fijada).
+type helmChart struct {
+	repo    string
+	chart   string
+	version string
+	release string
+	values  map[string]interface{}
 }
 
 // Catálogo de complementos. Fijados a una versión concreta (cadena de confianza).
@@ -60,6 +71,18 @@ var addons = map[string]addonSpec{
 		namespace: "kube-system",
 		url:       "https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml",
 	},
+	"falco": {
+		namespace: "falco",
+		helm: &helmChart{
+			repo: "https://falcosecurity.github.io/charts", chart: "falco",
+			version: "4.9.0", release: "falco",
+			// Driver moderno (eBPF) para que corra sin módulos de kernel.
+			values: map[string]interface{}{
+				"driver": map[string]interface{}{"kind": "modern_ebpf"},
+				"tty":    true,
+			},
+		},
+	},
 }
 
 // KubeActuator aplica acciones con client-go: escalar, reiniciar e instalar
@@ -69,6 +92,7 @@ type KubeActuator struct {
 	client  kubernetes.Interface
 	dyn     dynamic.Interface
 	mapper  *restmapper.DeferredDiscoveryRESTMapper
+	cfg     *rest.Config
 	http    *http.Client
 	timeout time.Duration
 }
@@ -97,6 +121,7 @@ func NewKubeActuator(kubeconfig string) (*KubeActuator, error) {
 		client:  cs,
 		dyn:     dyn,
 		mapper:  mapper,
+		cfg:     cfg,
 		http:    &http.Client{Timeout: 30 * time.Second},
 		timeout: 15 * time.Second,
 	}, nil
@@ -193,6 +218,10 @@ func (a *KubeActuator) installAddon(ctx context.Context, name string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: spec.namespace}}
 	if _, err := a.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("creando namespace %s: %w", spec.namespace, err)
+	}
+	// Chart de Helm o manifiesto único.
+	if spec.helm != nil {
+		return a.installHelm(ctx, spec.namespace, spec.helm)
 	}
 	manifest, err := a.fetch(ctx, spec.url)
 	if err != nil {

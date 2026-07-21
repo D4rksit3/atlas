@@ -132,17 +132,23 @@ lo mismo**, requieren rol **operator** y quedan **auditadas**. Verificado con
 En el Inspector de un **clúster**, la sección **Complementos** ofrece un catálogo
 por categorías, instalables con un clic (o **instalado ✓** si Atlas los detecta):
 
-| Categoría | Complemento | Para qué |
+| Categoría | Complemento | Instala vía |
 |---|---|---|
-| GitOps | **Argo CD** | despliegue continuo |
-| Seguridad | **Kyverno** | políticas de admisión/seguridad |
-| Redes | **MetalLB** | LoadBalancer para bare-metal/on-prem |
-| Monitoreo | **Metrics Server** | métricas de CPU/memoria |
+| GitOps | **Argo CD** | manifiesto |
+| Seguridad | **Kyverno** (políticas) · **Falco** (runtime eBPF) | manifiesto · **Helm** |
+| Redes | **MetalLB** (LoadBalancer) | manifiesto |
+| Monitoreo | **Metrics Server** | manifiesto |
 
-Al instalar, el agente crea el namespace y aplica el manifiesto con *server-side
-apply*; la orden viaja por el canal de acciones (auditada). Añadir un complemento
-nuevo = una entrada más en el catálogo (`pkg/api` + el agente). Verificado E2E
-(`make test-argocd`, `make test-addons`).
+Dos formas de instalar: un **manifiesto único** (server-side apply) o un **chart
+de Helm** (SDK de Helm compilado en el agente — no necesita el binario `helm`, y
+crea un *release* real). La orden viaja por el canal de acciones (auditada).
+Añadir un complemento nuevo = una entrada más en el catálogo (`pkg/api` + el
+agente). Verificado E2E: `make test-addons` (Kyverno, manifiesto) y `make
+test-helm` (Falco, Helm → crea el release y el DaemonSet).
+
+> Nota (Helm in-cluster): Helm necesita un directorio de caché escribible. Con
+> `readOnlyRootFilesystem`, monta un `emptyDir` y define `HELM_CACHE_HOME`,
+> `HELM_CONFIG_HOME` y `HELM_DATA_HOME` (ver `deploy/agent-addons.yaml`).
 
 > ⚠️ **Requiere permiso ampliado.** Instalar crea CRDs, ClusterRoles, etc., así
 > que el agente necesita permisos ~de admin. Por eso el catálogo es **cerrado**

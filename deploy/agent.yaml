@@ -31,7 +31,7 @@ rules:
   # Lectura de cargas + escritura acotada para ejecutar acciones de la GUI
   # (escalar = update; reiniciar = patch). No puede crear ni borrar cargas.
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
     verbs: ["get", "list", "watch", "update", "patch"]
   # Proyectos GitOps (Applications de ArgoCD): leer + gestionar (registrar,
   # sincronizar, revertir). Es un permiso ACOTADO a este recurso — NO da acceso a

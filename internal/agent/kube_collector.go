@@ -121,6 +121,21 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 		})
 	}
 
+	// DaemonSets: un pod por nodo (agentes de seguridad/red como Falco, CNIs...).
+	dss, err := c.client.AppsV1().DaemonSets(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return snap, fmt.Errorf("listando daemonsets: %w", err)
+	}
+	for i := range dss.Items {
+		d := &dss.Items[i]
+		snap.Workloads = append(snap.Workloads, api.Workload{
+			Name:      d.Name,
+			Namespace: d.Namespace,
+			Kind:      "DaemonSet",
+			Replicas:  int(d.Status.NumberReady),
+		})
+	}
+
 	// Ubicación de pods: en qué nodos corre cada carga y cuántos pods en cada uno.
 	// Es best-effort: si falla (p. ej. sin permiso de pods), seguimos sin ella.
 	if err := c.fillPlacement(ctx, snap.Workloads); err != nil {
