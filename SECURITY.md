@@ -24,7 +24,9 @@ entornos que administrar.
 | Instalar complementos (ArgoCD) | ⚠️ **opt-in**: catálogo cerrado + versión fijada, pero RBAC amplio | ClusterRole a medida por complemento (no cluster-admin) |
 | CORS | `*` por defecto | fija el origen: `--cors-origin https://tu-gui` |
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
-| Timeouts del servidor | ✅ read/write | añadir rate-limiting por agente |
+| Timeouts del servidor | ✅ read/write | — |
+| Rate limiting | ✅ **por IP** (`--rate-limit`, 20/s por defecto) | ajustar tras un proxy de confianza |
+| Cabeceras de seguridad | ✅ nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS (bajo TLS) | CSP en la GUI |
 | Contenedores | ✅ distroless, no-root | escaneo de imágenes en CI (Trivy) |
 | Secretos | ❌ no hay gestión | integrar con Secret manager / SOPS |
 

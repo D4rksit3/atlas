@@ -31,12 +31,14 @@ func main() {
 	oidcIssuer := flag.String("oidc-issuer", os.Getenv("ATLAS_OIDC_ISSUER"), "URL del IdP OIDC (activa la auth de la GUI). Vacío = sin auth (solo desarrollo)")
 	oidcClientID := flag.String("oidc-client-id", os.Getenv("ATLAS_OIDC_CLIENT_ID"), "client id (audiencia) de la GUI en el IdP")
 	rbacOperators := flag.String("rbac-operators", os.Getenv("ATLAS_RBAC_OPERATORS"), "emails o grupos (coma-separados) que pueden OPERAR (escalar/reiniciar)")
+	rateLimit := flag.Float64("rate-limit", 20, "peticiones/segundo por IP (0 = sin límite)")
 	flag.Parse()
 
 	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)
 	defer closeStore()
 	authn := buildAuth(*oidcIssuer, *oidcClientID, *rbacOperators)
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
+	srv.SetRateLimit(*rateLimit, int(*rateLimit*2))
 
 	httpServer := &http.Server{
 		Addr:              *addr,

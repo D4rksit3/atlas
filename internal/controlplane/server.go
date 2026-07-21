@@ -20,6 +20,17 @@ type Server struct {
 	metrics           *Metrics
 	corsOrigin        string
 	auth              *auth.Authenticator // nil = auth deshabilitada (desarrollo)
+	limiter           *ipLimiter          // nil = sin rate limiting
+}
+
+// SetRateLimit configura el límite por IP (peticiones/segundo y ráfaga). perSec<=0
+// lo desactiva.
+func (s *Server) SetRateLimit(perSec float64, burst int) {
+	if perSec <= 0 {
+		s.limiter = nil
+		return
+	}
+	s.limiter = newIPLimiter(perSec, burst)
 }
 
 // NewServer construye el servidor. heartbeatInterval son los segundos que se
@@ -36,6 +47,7 @@ func NewServer(store Store, heartbeatInterval int, corsOrigin string, authn *aut
 		metrics:           NewMetrics(),
 		corsOrigin:        corsOrigin,
 		auth:              authn,
+		limiter:           newIPLimiter(20, 40), // por defecto: 20 req/s por IP
 	}
 }
 
@@ -64,7 +76,8 @@ func (s *Server) Routes() http.Handler {
 	// Editar el mapa (metadatos): leer -> viewer; escribir -> operator.
 	mux.Handle("GET /v1/annotations", s.guard(auth.RoleViewer, s.handleListAnnotations))
 	mux.Handle("PUT /v1/annotations/{key...}", s.guard(auth.RoleOperator, s.handleSetAnnotation))
-	return withCORS(s.corsOrigin, s.withObservability(mux))
+	// Orden: cabeceras de seguridad -> CORS -> rate limit -> observabilidad -> rutas.
+	return withSecurityHeaders(withCORS(s.corsOrigin, s.withRateLimit(s.withObservability(mux))))
 }
 
 // guard envuelve un handler con la comprobación de rol si la auth está activa;

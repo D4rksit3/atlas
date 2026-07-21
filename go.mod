@@ -6,8 +6,6 @@ module github.com/atlasctl/atlas
 
 go 1.22.0
 
-toolchain go1.22.2
-
 require (
 	github.com/cilium/cilium v1.15.5
 	github.com/coreos/go-oidc/v3 v3.11.0
