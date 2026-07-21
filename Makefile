@@ -1,8 +1,8 @@
 # Atlas — atajos de desarrollo.
 # Requisitos: Go 1.22+ y Node 20+.
 
-.PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade vet fmt lint tidy docker-up docker-down clean
+.PHONY: help up install build controlplane agent run-controlplane run-agent \
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade test-install vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -10,6 +10,9 @@ help: ## Muestra esta ayuda
 
 up: ## Arranca TODO el stack en local (control plane + agentes + GUI)
 	./scripts/dev.sh
+
+install: ## Instala Atlas en un clúster (pregunta dominio + local/público)
+	./scripts/install.sh
 
 build: controlplane agent ## Compila ambos binarios en ./bin
 
@@ -81,6 +84,9 @@ test-values: ## E2E: valores editables al instalar (contraseña Grafana, retenci
 
 test-upgrade: ## E2E: editar valores de un complemento instalado (helm upgrade)
 	./scripts/test-upgrade.sh
+
+test-install: ## E2E: instalador (dominio + local/público) y enrutado por Ingress
+	./scripts/test-install.sh
 
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1

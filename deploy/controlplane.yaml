@@ -45,9 +45,11 @@ spec:
             - { name: http, containerPort: 8080 }
           env:
             # Origen permitido para la GUI. En producción, fíjalo a tu dominio
-            # (p. ej. https://atlas.example.com) en vez de "*".
+            # (p. ej. https://atlas.example.com) en vez de "*". El instalador
+            # (scripts/install.sh) reemplaza esta línea con el dominio y, si se
+            # pide, la config OIDC. Aplicado a mano, usa "*" (solo desarrollo).
             - name: ATLAS_CORS_ORIGIN
-              value: "*"
+              value: "*" # ATLAS_ENV_INJECT
             # Persistencia + multi-réplica: descomenta para usar Postgres. Guarda
             # el DSN en un Secret (no en texto plano). Crea el Secret con:
             #   kubectl -n atlas-system create secret generic atlas-pg \

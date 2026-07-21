@@ -1,0 +1,65 @@
+# Exponer Atlas en atlas.seguricloud.com (Ingress + TLS con cert-manager).
+#
+#   kubectl apply -f deploy/ingress.yaml
+#
+# Requisitos previos:
+#   - Un Ingress Controller (aquí: nginx). Ajusta ingressClassName si usas otro.
+#   - cert-manager con un ClusterIssuer (aquí: letsencrypt-prod).
+#   - Un registro DNS A/AAAA: atlas.seguricloud.com -> IP del Ingress.
+#   - deploy/controlplane.yaml y deploy/web.yaml ya aplicados.
+#
+# La GUI es el único punto de entrada público: su nginx hace de proxy de /v1 al
+# control plane DENTRO del clúster. Los agentes del MISMO clúster no necesitan
+# nada más. Para agentes de OTROS clústeres, expón también el control plane con
+# SSL passthrough (mTLS) — ver el bloque comentado abajo y docs/PUBLISH.md.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: atlas-web
+  namespace: atlas-system
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [atlas.seguricloud.com]
+      secretName: atlas-web-tls
+  rules:
+    - host: atlas.seguricloud.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: atlas-web
+                port: { number: 80 }
+---
+# Control plane para AGENTES EXTERNOS (opcional). El control plane hace mTLS, así
+# que el Ingress debe pasar el TLS SIN terminarlo (SSL passthrough) para que el
+# certificado de cliente del agente llegue intacto. Con nginx:
+#   nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+#   nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+# y el controller arrancado con --enable-ssl-passthrough.
+#
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: atlas-controlplane
+#   namespace: atlas-system
+#   annotations:
+#     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+#     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+# spec:
+#   ingressClassName: nginx
+#   rules:
+#     - host: atlas-cp.seguricloud.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: atlas-controlplane
+#                 port: { number: 8080 }
