@@ -13,6 +13,44 @@ type Collector interface {
 	Collect() (api.Snapshot, error)
 }
 
+// LinkProvider aporta las CONEXIONES entre servicios (los Links del mapa), que
+// no viven en la API de Kubernetes sino en la observabilidad de red (Hubble).
+type LinkProvider interface {
+	Links() ([]api.Link, error)
+}
+
+// withLinks compone un Collector (nodos + cargas) con un LinkProvider (enlaces):
+// el snapshot base se enriquece con los enlaces reales. Si el proveedor falla,
+// NO se cae el latido: se devuelve el snapshot sin enlaces y se anota el error.
+type withLinks struct {
+	base  Collector
+	links LinkProvider
+	log   func(string, ...any)
+}
+
+// WithLinks devuelve un Collector que añade enlaces del provider al base.
+func WithLinks(base Collector, links LinkProvider, logf func(string, ...any)) Collector {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	return &withLinks{base: base, links: links, log: logf}
+}
+
+func (c *withLinks) Collect() (api.Snapshot, error) {
+	snap, err := c.base.Collect()
+	if err != nil {
+		return snap, err // el base manda: sin nodos/cargas no hay mapa
+	}
+	links, err := c.links.Links()
+	if err != nil {
+		// Los enlaces son "mejor esfuerzo": el mapa sigue vivo sin ellos.
+		c.log("proveedor de enlaces falló (sigo sin enlaces): %v", err)
+		return snap, nil
+	}
+	snap.Links = links
+	return snap, nil
+}
+
 // SampleCollector produce una topología de ejemplo, coherente con el provider,
 // para que puedas ver el mapa vivo end-to-end SIN un clúster real todavía.
 //

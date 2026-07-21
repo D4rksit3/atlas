@@ -23,6 +23,8 @@ func main() {
 	provider := flag.String("provider", envOr("ATLAS_PROVIDER", "onprem"), "onprem | aws | oci")
 	collectorMode := flag.String("collector", envOr("ATLAS_COLLECTOR", "sample"), "sample (datos ficticios) | kube (clúster real vía client-go)")
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "ruta al kubeconfig (modo kube; vacío = in-cluster o ~/.kube/config)")
+	linksMode := flag.String("links", envOr("ATLAS_LINKS", "none"), "none | hubble (conexiones reales entre servicios vía Cilium/Hubble)")
+	hubbleServer := flag.String("hubble-server", envOr("ATLAS_HUBBLE_SERVER", "hubble-relay.kube-system:80"), "dirección de hubble-relay (modo links=hubble)")
 	workers := flag.Int("sample-workers", 3, "nº de nodos worker en el colector de ejemplo")
 	flag.Parse()
 
@@ -53,6 +55,17 @@ func main() {
 		log.Printf("colector: sample (datos de ejemplo)")
 	default:
 		log.Fatalf("colector desconocido %q (usa: sample | kube)", *collectorMode)
+	}
+
+	// Enlaces (conexiones entre servicios): opcionalmente desde Hubble.
+	switch *linksMode {
+	case "none":
+		// Sin enlaces: el mapa muestra nodos y cargas, sin conexiones.
+	case "hubble":
+		collector = agent.WithLinks(collector, agent.NewHubbleCollector(*hubbleServer), log.Printf)
+		log.Printf("enlaces: hubble (conexiones reales vía %s)", *hubbleServer)
+	default:
+		log.Fatalf("modo de enlaces desconocido %q (usa: none | hubble)", *linksMode)
 	}
 
 	a := agent.New(cfg, collector)

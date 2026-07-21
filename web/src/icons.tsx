@@ -6,7 +6,9 @@ export type IconKey =
   | "cluster"
   | "server"
   | "agent"
-  | "console";
+  | "console"
+  | "workload"
+  | "database";
 
 const PATHS: Record<IconKey, string> = {
   controlplane:
@@ -18,6 +20,12 @@ const PATHS: Record<IconKey, string> = {
   agent:
     "M6.5 11h11v8.5h-11zM12 11V8.4M9.2 6.6a4 4 0 0 1 5.6 0M7.2 4.8a7 7 0 0 1 9.6 0",
   console: "M3 5h18v14H3zM3 9.5h18M6 7.2h.01M8.6 7.2h.01",
+  // Deployment: capas apiladas (réplicas).
+  workload:
+    "M12 3 3.5 7.2 12 11.4l8.5-4.2ZM3.5 12 12 16.2 20.5 12M3.5 16.8 12 21l8.5-4.2",
+  // StatefulSet / almacén: cilindro.
+  database:
+    "M12 3c3.9 0 6.5 1.1 6.5 2.5S15.9 8 12 8 5.5 6.9 5.5 5.5 8.1 3 12 3ZM5.5 5.5v13c0 1.4 2.6 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-13M5.5 12c0 1.4 2.6 2.5 6.5 2.5s6.5-1.1 6.5-2.5",
 };
 
 export function Icon({ name, size = 22 }: { name: IconKey; size?: number }) {

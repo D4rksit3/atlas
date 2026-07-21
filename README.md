@@ -127,11 +127,32 @@ make test-kube        # o:  ./scripts/test-kube.sh
 > Verificado E2E contra Kubernetes 1.30 (kind): 3 nodos con sus roles, cargas
 > reales de todos los namespaces, y actualización en vivo al escalar réplicas.
 
+## Conexiones reales entre servicios (Hubble)
+
+La API de Kubernetes **no sabe quién habla con quién**. Esas conexiones (los
+`links` del mapa) salen de **Hubble**, la observabilidad de red de **Cilium**.
+El agente las obtiene con `--links hubble`:
+
+```bash
+# Requiere Cilium + Hubble Relay en el clúster. Fuera del clúster, port-forward:
+kubectl -n kube-system port-forward svc/hubble-relay 4245:80 &
+go run ./cmd/agent --collector kube --links hubble --hubble-server localhost:4245 \
+  --name "mi k3s" --provider onprem --control-plane http://localhost:8080
+
+# In-cluster: el relay suele estar en hubble-relay.kube-system:80 (valor por defecto).
+```
+
+El colector muestrea los últimos flujos, se queda solo con el tráfico
+**iniciado** (no las respuestas) y lo agrega en enlaces dirigidos
+`origen → destino` entre cargas. Verificado E2E: `web → api`, `web → db`,
+`web → coredns` aparecen en el mapa a partir del tráfico real observado por
+Cilium. Reprodúcelo con **`make test-hubble`** (levanta kind + Cilium + Hubble).
+
 ## Lo que es de verdad y lo que es andamio
 
 - **De verdad:** el modelo agente-saliente, el registro con token, los latidos, el store con expiración de offline, la GUI que hace poll y pinta el mapa, y el **colector kube con client-go** (verificado E2E contra un clúster kind real — `make test-kube`). Es el esqueleto correcto.
+- **De verdad (fase 2):** el **colector Hubble** que lee las conexiones reales entre servicios desde Cilium (`--links hubble`), verificado E2E — `make test-hubble`.
 - **Andamio (TODO fase 2+):**
-  - **Conexiones (Links):** las conexiones reales entre servicios salen de **Hubble** (Cilium), no de la API de K8s. El colector deja `Links` vacío hasta integrar Hubble.
   - El transporte es HTTP con latidos periódicos. Para tiempo real y comandos control-plane→agente, evolúcialo a **gRPC bidireccional** o WebSocket (manteniendo la conexión saliente).
   - El store es en memoria. Para multi-réplica y persistencia, mételo detrás de **Postgres**.
   - Añadir **mTLS** de verdad (hoy el token es un placeholder de sesión).

@@ -71,6 +71,10 @@ spec:
             - "--collector=kube"       # lee este clúster real (in-cluster)
             - "--name=$(CLUSTER_NAME)"
             - "--provider=$(PROVIDER)"
+            # Conexiones reales entre servicios (requiere Cilium + Hubble Relay).
+            # Descomenta para poblar los enlaces del mapa desde Hubble:
+            # - "--links=hubble"
+            # - "--hubble-server=hubble-relay.kube-system:80"
           env:
             # A dónde marca hacia casa el agente (conexión saliente).
             - name: ATLAS_CONTROL_PLANE
