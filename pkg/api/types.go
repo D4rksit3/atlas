@@ -111,10 +111,12 @@ const (
 
 // Tipos de acción soportados.
 const (
-	ActionScale   = "scale"   // cambiar el nº de réplicas de una carga
-	ActionRestart = "restart" // reinicio suave (rollout) de una carga
-	ActionInstall = "install" // instalar un complemento vetado (p. ej. ArgoCD)
-	ActionAddApp  = "addapp"  // registrar un proyecto GitOps (Application de ArgoCD)
+	ActionScale    = "scale"    // cambiar el nº de réplicas de una carga
+	ActionRestart  = "restart"  // reinicio suave (rollout) de una carga
+	ActionInstall  = "install"  // instalar un complemento vetado (p. ej. ArgoCD)
+	ActionAddApp   = "addapp"   // registrar un proyecto GitOps (Application de ArgoCD)
+	ActionSync     = "sync"     // forzar sincronización de un proyecto GitOps
+	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
 )
 
 // AppSpec describe el proyecto GitOps a registrar (crea una Application de ArgoCD).

@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/restmapper"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/atlasctl/atlas/pkg/api"
 )
@@ -106,6 +107,10 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.installAddon(ctx, act.Addon)
 	case api.ActionAddApp:
 		err = a.addApp(ctx, act.App)
+	case api.ActionSync:
+		err = a.syncApp(ctx, act.App)
+	case api.ActionRollback:
+		err = a.rollbackApp(ctx, act.App)
 	default:
 		err = fmt.Errorf("acción no soportada: %q", act.Kind)
 	}
@@ -212,6 +217,63 @@ func (a *KubeActuator) addApp(ctx context.Context, spec *api.AppSpec) error {
 		},
 	}}
 	return a.applyOne(ctx, app, "argocd")
+}
+
+// syncApp fuerza una sincronización del proyecto (Application) a su revisión
+// objetivo (HEAD): pone .operation.sync y ArgoCD la ejecuta.
+func (a *KubeActuator) syncApp(ctx context.Context, spec *api.AppSpec) error {
+	if spec == nil || spec.Name == "" {
+		return fmt.Errorf("falta el nombre del proyecto")
+	}
+	apps := a.dyn.Resource(argoAppGVR).Namespace("argocd")
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		app, err := apps.Get(ctx, spec.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("leyendo el proyecto: %w", err)
+		}
+		if err := unstructured.SetNestedMap(app.Object,
+			map[string]interface{}{"prune": true}, "operation", "sync"); err != nil {
+			return err
+		}
+		_, err = apps.Update(ctx, app, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// rollbackApp revierte el proyecto a la revisión anterior de su historial. Pausa
+// el auto-sync para que ArgoCD no vuelva a avanzar a HEAD inmediatamente.
+func (a *KubeActuator) rollbackApp(ctx context.Context, spec *api.AppSpec) error {
+	if spec == nil || spec.Name == "" {
+		return fmt.Errorf("falta el nombre del proyecto")
+	}
+	apps := a.dyn.Resource(argoAppGVR).Namespace("argocd")
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		app, err := apps.Get(ctx, spec.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("leyendo el proyecto: %w", err)
+		}
+		history, _, _ := unstructured.NestedSlice(app.Object, "status", "history")
+		if len(history) < 2 {
+			return fmt.Errorf("no hay una versión anterior a la que revertir")
+		}
+		prev, ok := history[len(history)-2].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("historial ilegible")
+		}
+		prevRev, _, _ := unstructured.NestedString(prev, "revision")
+		if prevRev == "" {
+			return fmt.Errorf("la versión anterior no tiene revisión")
+		}
+		// Pausa auto-sync (si no, se re-sincronizaría a HEAD) y sincroniza a la
+		// revisión anterior.
+		unstructured.RemoveNestedField(app.Object, "spec", "syncPolicy", "automated")
+		if err := unstructured.SetNestedMap(app.Object,
+			map[string]interface{}{"revision": prevRev, "prune": true}, "operation", "sync"); err != nil {
+			return err
+		}
+		_, err = apps.Update(ctx, app, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 func (a *KubeActuator) fetch(ctx context.Context, url string) ([]byte, error) {

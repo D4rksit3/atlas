@@ -60,6 +60,46 @@ export function Inspector({
   const [addBusy, setAddBusy] = useState(false);
   const [addFb, setAddFb] = useState<Feedback | null>(null);
 
+  // --- proyecto GitOps seleccionado (sync / rollback) ---
+  const appOps = sel.app;
+  const [gitBusy, setGitBusy] = useState(false);
+  const [gitFb, setGitFb] = useState<Feedback | null>(null);
+
+  async function gitopsAction(kind: "sync" | "rollback", verb: string) {
+    if (!appOps) return;
+    setGitBusy(true);
+    setGitFb({ text: `${verb}…`, tone: "info" });
+    try {
+      const a = await postAction(appOps.clusterId, { kind, app: { name: appOps.name, repoURL: "", path: "", namespace: "argocd" } });
+      let tries = 0;
+      const iv = window.setInterval(async () => {
+        tries++;
+        try {
+          const acts = await fetchActions(appOps.clusterId);
+          const act = acts.find((x) => x.id === a.id);
+          if (act?.status === "done") {
+            window.clearInterval(iv);
+            setGitBusy(false);
+            setGitFb({ text: `${verb} ✓`, tone: "ok" });
+          } else if (act?.status === "error") {
+            window.clearInterval(iv);
+            setGitBusy(false);
+            setGitFb({ text: `error: ${act.error ?? "desconocido"}`, tone: "err" });
+          } else if (tries > 30) {
+            window.clearInterval(iv);
+            setGitBusy(false);
+            setGitFb({ text: "sin confirmación aún…", tone: "err" });
+          }
+        } catch {
+          /* reintenta */
+        }
+      }, 2000);
+    } catch (e) {
+      setGitBusy(false);
+      setGitFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
+    }
+  }
+
   useEffect(() => {
     setName(annotation.displayName ?? "");
     setColor(annotation.color ?? "");
@@ -70,6 +110,7 @@ export function Inspector({
     setOpFb(null);
     setInstallFb(null);
     setAddFb(null);
+    setGitFb(null);
     setPName("");
     setPRepo("");
     setPPath("");
@@ -291,6 +332,46 @@ export function Inspector({
           Guardar
         </button>
         {savedFb && <div className={`insp-fb ${savedFb.tone}`}>{savedFb.text}</div>}
+
+        {/* ---- proyecto GitOps (sync / rollback) ---- */}
+        {appOps && (
+          <>
+            <div className="insp-section">Proyecto GitOps</div>
+            <div className="proj-status">
+              <span
+                className="proj-dot"
+                style={{
+                  background:
+                    appOps.health === "Degraded" || appOps.health === "Missing"
+                      ? "#ff7c7c"
+                      : appOps.sync === "OutOfSync" || appOps.health === "Progressing"
+                        ? "#F0932B"
+                        : "var(--good)",
+                }}
+              />
+              <span className="proj-status-text">
+                {appOps.sync} · {appOps.health}
+              </span>
+            </div>
+            <div className="insp-actions">
+              <button
+                className="btn primary"
+                onClick={() => gitopsAction("sync", "sincronizar")}
+                disabled={gitBusy || !appOps.online}
+              >
+                Sincronizar
+              </button>
+              <button
+                className="btn"
+                onClick={() => gitopsAction("rollback", "revertir")}
+                disabled={gitBusy || !appOps.online}
+              >
+                Revertir
+              </button>
+            </div>
+            {gitFb && <div className={`insp-fb ${gitFb.tone}`}>{gitFb.text}</div>}
+          </>
+        )}
 
         {/* ---- complementos (solo clústeres) ---- */}
         {cluster && (

@@ -239,6 +239,8 @@ main { flex: 1; min-height: 0; padding: 16px; }
 .proj-name { font-size: 13.5px; font-weight: 600; }
 .proj-sub { font-size: 11px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
 .proj-form { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.proj-status { display: flex; align-items: center; gap: 9px; }
+.proj-status-text { font-size: 14px; font-family: ui-monospace, Menlo, monospace; }
 
 .insp-fb { font-size: 13px; border-radius: 8px; padding: 9px 11px; }
 .insp-fb.info { background: #212c3b; color: var(--muted); }

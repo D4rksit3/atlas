@@ -154,6 +154,13 @@ mapa (los proyectos se dibujan como nodos GitOps, coloreados por su estado).
 Verificado E2E (`make test-gitops`): registrar un proyecto → ArgoCD lo sincroniza
 → Atlas lo muestra **Synced** y sus cargas se despliegan solas.
 
+**Sincronizar y revertir desde el mapa:** clic en un nodo de proyecto GitOps y el
+Inspector muestra su estado + botones **Sincronizar** (fuerza una sync) y
+**Revertir** (vuelve a la revisión anterior del historial, pausando el auto-sync
+para que no vuelva a avanzar). El agente lo hace tocando la Application (no
+necesita cluster-admin: solo permiso sobre `applications`). Verificado con
+`make test-sync`.
+
 ## Desplegar Atlas dentro de Kubernetes
 
 Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de

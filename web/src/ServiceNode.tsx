@@ -22,6 +22,17 @@ export interface Selection {
   subtitle: string; // provider o namespace
   op?: WorkloadOp; // presente solo si es operable (carga)
   cluster?: ClusterOps; // presente solo si es un clúster (complementos)
+  app?: AppOps; // presente solo si es un proyecto GitOps
+}
+
+// AppOps: acciones sobre un proyecto GitOps (sincronizar / revertir).
+export interface AppOps {
+  clusterId: string;
+  name: string;
+  online: boolean;
+  sync: string;
+  health: string;
+  repoURL: string;
 }
 
 // ClusterOps: acciones a nivel de clúster (complementos y proyectos GitOps).

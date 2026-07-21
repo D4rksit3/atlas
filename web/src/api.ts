@@ -85,7 +85,13 @@ export async function fetchTopology(): Promise<Topology> {
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
 
-export type ActionKind = "scale" | "restart" | "install" | "addapp";
+export type ActionKind =
+  | "scale"
+  | "restart"
+  | "install"
+  | "addapp"
+  | "sync"
+  | "rollback";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 export interface ActionRequest {

@@ -301,13 +301,30 @@ function build(
     (c.snapshot?.apps ?? []).forEach((app, j) => {
       const id = `${clusterId}-app-${j}`;
       const col = appColor(app);
+      const aKey = `${c.clusterId}/${app.namespace}/${app.name}`;
+      const aAnno = annos[aKey] ?? {};
       add(id, {
-        label: app.name,
+        label: aAnno.displayName || app.name,
         sublabel: `GitOps · ${app.sync}`,
-        color: col,
+        color: aAnno.color || col,
         icon: "gitops",
         online: c.online,
         muted: !c.online,
+        hasNote: !!aAnno.note,
+        sel: {
+          key: aKey,
+          title: app.name,
+          kind: "Proyecto GitOps",
+          subtitle: app.repoURL,
+          app: {
+            clusterId: c.clusterId,
+            name: app.name,
+            online: c.online,
+            sync: app.sync,
+            health: app.health,
+            repoURL: app.repoURL,
+          },
+        },
       });
       edges.push({
         id: `e-${id}`,

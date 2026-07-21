@@ -33,11 +33,13 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets"]
     verbs: ["get", "list", "watch", "update", "patch"]
-  # Lectura de proyectos GitOps (Applications de ArgoCD) para mostrarlos en el
-  # mapa. Solo lectura; crearlas requiere el RBAC opt-in (deploy/agent-addons.yaml).
+  # Proyectos GitOps (Applications de ArgoCD): leer + gestionar (registrar,
+  # sincronizar, revertir). Es un permiso ACOTADO a este recurso — NO da acceso a
+  # otros recursos. Instalar ArgoCD en sí (crear CRDs/roles) sigue necesitando el
+  # RBAC amplio opt-in (deploy/agent-addons.yaml).
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
