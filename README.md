@@ -65,6 +65,21 @@ make run-agent                 # un agente on-prem de ejemplo
 make web-install && make web-dev   # http://localhost:5173
 ```
 
+## Desplegar Atlas dentro de Kubernetes
+
+Corre el control plane y la GUI en un clúster y conéctale agentes (del mismo o de
+otros entornos). Guía completa en **[docs/DEPLOY.md](docs/DEPLOY.md)**:
+
+```bash
+kubectl apply -f deploy/controlplane.yaml   # control plane + Service
+kubectl apply -f deploy/web.yaml            # GUI (nginx) + proxy a la API
+kubectl apply -f deploy/agent.yaml          # agente que lee este clúster
+```
+
+Verificado E2E (`make test-deploy`): Atlas desplegado en kind termina
+**monitoreándose a sí mismo** — ve sus propios pods (`atlas-controlplane`,
+`atlas-web`, `atlas-agent`) como cargas, con su ubicación por nodo.
+
 ## Observabilidad
 
 El control plane expone, además de la API:

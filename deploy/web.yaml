@@ -1,0 +1,112 @@
+# Despliegue de la GUI de Atlas dentro de Kubernetes.
+#
+#   kubectl apply -f deploy/web.yaml
+#
+# Sirve la SPA (React) y hace de proxy de /v1 y /healthz hacia el Service del
+# control plane. Aplica primero deploy/controlplane.yaml.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: atlas-web-nginx
+  namespace: atlas-system
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      # API del control plane (Service en el mismo namespace).
+      location /v1/ {
+        proxy_pass http://atlas-controlplane.atlas-system:8080;
+      }
+      location = /healthz {
+        proxy_pass http://atlas-controlplane.atlas-system:8080;
+      }
+      # SPA: cualquier ruta desconocida devuelve index.html.
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlas-web
+  namespace: atlas-system
+  labels: { app: atlas-web }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: atlas-web }
+  template:
+    metadata:
+      labels: { app: atlas-web }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # usuario nginx (imagen ngin:alpine)
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          # TODO: reemplaza por tu imagen publicada (web/Dockerfile).
+          image: ghcr.io/atlasctl/atlas-web:latest
+          ports:
+            - { name: http, containerPort: 8080 }
+          volumeMounts:
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d/default.conf, subPath: default.conf }
+            - { name: cache, mountPath: /var/cache/nginx }
+            - { name: run, mountPath: /var/run }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "100m", memory: "64Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: nginx-conf, configMap: { name: atlas-web-nginx } }
+        - { name: cache, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atlas-web
+  namespace: atlas-system
+  labels: { app: atlas-web }
+spec:
+  selector: { app: atlas-web }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# Ingress OPCIONAL para abrir la GUI al exterior. Requiere Ingress Controller y,
+# idealmente, TLS con cert-manager. Descomenta y ajusta el host.
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: atlas-web
+#   namespace: atlas-system
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#     - hosts: [atlas.example.com]
+#       secretName: atlas-web-tls
+#   rules:
+#     - host: atlas.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: atlas-web
+#                 port: { number: 80 }

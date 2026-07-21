@@ -1,0 +1,102 @@
+# Despliegue del CONTROL PLANE de Atlas dentro de Kubernetes.
+#
+#   kubectl apply -f deploy/controlplane.yaml
+#
+# Antes:
+#   - construye y publica la imagen (Dockerfile, target 'controlplane').
+#   - ajusta la imagen y, en producción, ATLAS_CORS_ORIGIN y el Ingress.
+#
+# El control plane NO habla con la API de Kubernetes: solo sirve HTTP (registro
+# de agentes, topología, métricas). Por eso no necesita RBAC ni ServiceAccount
+# con permisos. Los agentes marcan HACIA él (conexión saliente).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: atlas-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlas-controlplane
+  namespace: atlas-system
+  labels: { app: atlas-controlplane }
+spec:
+  replicas: 1 # el store es en memoria; para >1 réplica hace falta Postgres (fase 2)
+  selector:
+    matchLabels: { app: atlas-controlplane }
+  template:
+    metadata:
+      labels: { app: atlas-controlplane }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # uid 'nonroot' de la imagen distroless (verificable)
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: controlplane
+          # TODO: reemplaza por tu imagen publicada (Dockerfile target 'controlplane').
+          image: ghcr.io/atlasctl/atlas-controlplane:latest
+          args: ["--addr", ":8080"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            # Origen permitido para la GUI. En producción, fíjalo a tu dominio
+            # (p. ej. https://atlas.example.com) en vez de "*".
+            - name: ATLAS_CORS_ORIGIN
+              value: "*"
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: atlas-controlplane
+  namespace: atlas-system
+  labels: { app: atlas-controlplane }
+spec:
+  selector: { app: atlas-controlplane }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+# ClusterIP: alcanzable dentro del clúster como
+#   http://atlas-controlplane.atlas-system:8080
+# Los agentes del MISMO clúster usan ese DNS. Los de OTROS entornos necesitan
+# alcanzarlo desde fuera -> Ingress de abajo (con TLS).
+---
+# Ingress OPCIONAL para que agentes de OTROS clústeres marquen hacia casa desde
+# fuera. Requiere un Ingress Controller (nginx, traefik...) y, idealmente, TLS
+# gestionado por cert-manager. Descomenta y ajusta el host.
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: atlas-controlplane
+#   namespace: atlas-system
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#     - hosts: [atlas-cp.example.com]
+#       secretName: atlas-cp-tls
+#   rules:
+#     - host: atlas-cp.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: atlas-controlplane
+#                 port: { number: 8080 }

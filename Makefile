@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -39,6 +39,9 @@ test-kube: ## E2E: levanta kind, corre el colector kube y verifica el mapa (nece
 
 test-hubble: ## E2E: kind+Cilium+Hubble y verifica los enlaces reales del mapa (necesita docker+kind+kubectl+cilium)
 	./scripts/test-hubble.sh
+
+test-deploy: ## E2E: despliega Atlas DENTRO de kind (control plane+GUI+agente) y verifica el circuito
+	./scripts/test-deploy.sh
 
 vet: ## go vet
 	go vet ./...

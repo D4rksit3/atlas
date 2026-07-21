@@ -62,6 +62,7 @@ spec:
       serviceAccountName: atlas-agent
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65532 # uid 'nonroot' de la imagen distroless (verificable)
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: agent
