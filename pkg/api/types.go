@@ -52,6 +52,8 @@ type Node struct {
 	Name  string `json:"name"`
 	Role  string `json:"role"` // "control-plane" | "worker"
 	Ready bool   `json:"ready"`
+	// Unschedulable: el nodo está acordonado (cordon) y no acepta pods nuevos.
+	Unschedulable bool `json:"unschedulable,omitempty"`
 	// Usage: CPU/memoria en uso del nodo, si hay metrics-server.
 	Usage *Usage `json:"usage,omitempty"`
 }
@@ -197,7 +199,19 @@ const (
 	ActionUnexpose  = "unexpose"  // retirar una publicación (borrar el Ingress atlas-<service>)
 	ActionLogs      = "logs"      // diagnóstico: últimos logs de los pods de una carga
 	ActionEvents    = "events"    // diagnóstico: eventos recientes de un namespace
+	ActionCordon    = "cordon"    // nodo: no aceptar pods nuevos
+	ActionUncordon  = "uncordon"  // nodo: volver a aceptar pods
+	ActionDrain     = "drain"     // nodo: cordon + desalojar sus pods (mantenimiento)
+	ActionCreateNS  = "createns"  // crear un namespace (con cuotas de CPU/memoria opcionales)
 )
+
+// NamespaceSpec describe un namespace a crear desde la GUI, con cuotas
+// opcionales (ResourceQuota) para ordenar el clúster por equipos/proyectos.
+type NamespaceSpec struct {
+	Name   string `json:"name"`
+	CPU    string `json:"cpu,omitempty"`    // p. ej. "2" (límite total de CPU)
+	Memory string `json:"memory,omitempty"` // p. ej. "4Gi" (límite total de memoria)
+}
 
 // ExposeSpec describe cómo publicar un servicio del clúster: el agente crea un
 // Ingress "atlas-<service>" que enruta el host al Service indicado. Con TLS,
@@ -373,6 +387,8 @@ type ActionRequest struct {
 	App          *AppSpec          `json:"app,omitempty"`    // proyecto a registrar (solo addapp)
 	Issuer       *IssuerSpec       `json:"issuer,omitempty"` // emisor TLS a crear (solo issuer)
 	Expose       *ExposeSpec       `json:"expose,omitempty"` // servicio a publicar (solo expose)
+	Node         string            `json:"node,omitempty"`   // nodo objetivo (cordon/uncordon/drain)
+	NS           *NamespaceSpec    `json:"ns,omitempty"`     // namespace a crear (solo createns)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
@@ -388,6 +404,8 @@ type Action struct {
 	App          *AppSpec          `json:"app,omitempty"`
 	Issuer       *IssuerSpec       `json:"issuer,omitempty"`
 	Expose       *ExposeSpec       `json:"expose,omitempty"`
+	Node         string            `json:"node,omitempty"`
+	NS           *NamespaceSpec    `json:"ns,omitempty"`
 	Output       string            `json:"output,omitempty"` // salida de logs/events
 	Status       string            `json:"status"`
 	Error        string            `json:"error,omitempty"`
@@ -404,7 +422,17 @@ const (
 	AuditExecuted  = "action.executed"  // el agente la ejecutó (ok/error)
 	AuditMapEdited = "map.edited"       // un usuario editó metadatos del mapa
 	AuditLogin     = "auth.login"       // intento de login local (ok o fallido)
+	AuditUser      = "user.managed"     // alta/baja de un usuario local
 )
+
+// LocalUser es un usuario local de Atlas creado desde la GUI (además del admin
+// del instalador). El hash bcrypt NUNCA viaja por la API.
+type LocalUser struct {
+	Username  string    `json:"username"`
+	Role      string    `json:"role"` // viewer | operator
+	CreatedBy string    `json:"createdBy,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
 
 // AuditEntry es una línea del registro de auditoría.
 type AuditEntry struct {

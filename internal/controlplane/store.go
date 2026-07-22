@@ -59,7 +59,21 @@ type Store interface {
 	// RecordLogin deja en la auditoría un intento de login local (bueno o malo)
 	// con la IP de origen. Best-effort: nunca bloquea el login.
 	RecordLogin(user, ip string, ok bool, now time.Time)
+
+	// Usuarios locales adicionales (creados desde la GUI). El hash es bcrypt.
+	CreateUser(username, hash, role, actor string, now time.Time) error
+	DeleteUser(username, actor string, now time.Time) error
+	ListUsers() ([]api.LocalUser, error)
+	// UserAuth devuelve el hash y rol de un usuario para el login (ok=false si
+	// no existe). No audita: eso lo hace RecordLogin.
+	UserAuth(username string) (hash, role string, ok bool)
 }
+
+// ErrUserExists / ErrUnknownUser: altas duplicadas y bajas de inexistentes.
+var (
+	ErrUserExists  = errors.New("ese usuario ya existe")
+	ErrUnknownUser = errors.New("usuario desconocido")
+)
 
 // annotationSummary describe una edición del mapa para la auditoría.
 func annotationSummary(key string, a api.Annotation) string {
@@ -112,6 +126,17 @@ func summarize(a api.Action) string {
 		return fmt.Sprintf("ver logs de %s/%s", a.Namespace, a.Workload)
 	case api.ActionEvents:
 		return fmt.Sprintf("ver eventos de %s", a.Namespace)
+	case api.ActionCordon:
+		return fmt.Sprintf("acordonar el nodo %s (no aceptará pods nuevos)", a.Node)
+	case api.ActionUncordon:
+		return fmt.Sprintf("reabrir el nodo %s", a.Node)
+	case api.ActionDrain:
+		return fmt.Sprintf("vaciar el nodo %s (mantenimiento)", a.Node)
+	case api.ActionCreateNS:
+		if a.NS != nil {
+			return fmt.Sprintf("crear el namespace %q (cuotas: cpu=%s mem=%s)", a.NS.Name, orDash(a.NS.CPU), orDash(a.NS.Memory))
+		}
+		return "crear un namespace"
 	case api.ActionUnexpose:
 		if a.Expose != nil {
 			return fmt.Sprintf("despublicar el servicio %s/%s", a.Expose.Namespace, a.Expose.Service)
@@ -197,6 +222,19 @@ func validActionRequest(req api.ActionRequest) error {
 			return errors.New("events requiere namespace")
 		}
 		return nil
+	case api.ActionCordon, api.ActionUncordon, api.ActionDrain:
+		if req.Node == "" {
+			return errors.New(req.Kind + " requiere 'node'")
+		}
+		return nil
+	case api.ActionCreateNS:
+		if req.NS == nil || req.NS.Name == "" {
+			return errors.New("createns requiere ns.name")
+		}
+		if !validHost(req.NS.Name) || strings.Contains(req.NS.Name, ".") {
+			return errors.New("ns.name debe ser un nombre DNS válido (minúsculas, dígitos, guiones)")
+		}
+		return nil
 	case api.ActionScale, api.ActionRestart:
 		if req.Namespace == "" || req.Workload == "" {
 			return errors.New("namespace y workload son obligatorios")
@@ -211,6 +249,13 @@ func validActionRequest(req api.ActionRequest) error {
 	default:
 		return errors.New("kind no soportado (usa: scale | restart | install | addapp | sync | rollback | issuer | expose)")
 	}
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // validHost acepta nombres DNS razonables (letras/dígitos/guiones por etiqueta,

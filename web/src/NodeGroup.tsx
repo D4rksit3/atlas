@@ -24,13 +24,18 @@ export interface NodeGroupData {
   items: NodeGroupItem[];
   onSelect: (sel: Selection) => void;
   usage?: string; // consumo vivo "123m · 456Mi" (metrics-server)
+  nodeSel?: Selection; // clicar la cabecera abre el Inspector del NODO
 }
 
 export function NodeGroup({ data }: { data: NodeGroupData }) {
   return (
     <div className={`nodegroup${data.online ? "" : " is-off"}`}>
       <Handle type="target" position={Position.Left} />
-      <div className="ng-head">
+      <div
+        className={`ng-head${data.nodeSel ? " clickable" : ""}`}
+        onClick={() => data.nodeSel && data.onSelect(data.nodeSel)}
+        title={data.nodeSel ? "administrar este nodo" : undefined}
+      >
         <span className="ng-ico" style={{ background: data.color }}>
           <Icon name="server" size={16} />
         </span>

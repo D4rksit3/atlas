@@ -33,6 +33,7 @@ import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 import { Inspector } from "./Inspector";
 import { AuditPanel } from "./AuditPanel";
 import { ServicesPanel } from "./ServicesPanel";
+import { UsersPanel } from "./UsersPanel";
 import { NodeGroup, type NodeGroupItem } from "./NodeGroup";
 import { NetGroup, netGroupHeight, type NetGroupData, type NetServiceRow, type NetWorkloadRef } from "./NetGroup";
 
@@ -284,9 +285,18 @@ function build(
         nodes.push({
           id: nid, type: "nodegroup", position: { x: 0, y: 0 },
           data: {
-            nodeName: n.name, role: n.role, online: n.ready && c.online,
+            nodeName: n.name, role: n.unschedulable ? `${n.role} · acordonado` : n.role,
+            online: n.ready && c.online,
             color: isCP ? CP_NODE : WORKER, items, onSelect: opts.onSelect,
             usage: fmtUsage(n.usage),
+            nodeSel: {
+              key: `${c.clusterId}/node/${n.name}`, title: n.name, kind: "Nodo",
+              subtitle: n.role, usage: n.usage ?? undefined,
+              node: {
+                clusterId: c.clusterId, name: n.name,
+                online: c.online, unschedulable: !!n.unschedulable,
+              },
+            },
           },
         });
         // Altura acorde al CSS real (fila = 30px): si se subestima, las cajas
@@ -308,13 +318,25 @@ function build(
       const nid = `${clusterId}-node-${j}`;
       nodeIdByName.set(n.name, nid);
       const isCP = n.role === "control-plane";
+      const roleTxt = n.unschedulable ? `${n.role} · acordonado` : n.role;
       add(nid, {
         label: n.name,
-        sublabel: n.usage ? `${n.role} · ${fmtUsage(n.usage)}` : n.role,
+        sublabel: n.usage ? `${roleTxt} · ${fmtUsage(n.usage)}` : roleTxt,
         color: isCP ? CP_NODE : WORKER,
         icon: "server",
-        online: n.ready,
+        online: n.ready && !n.unschedulable,
         muted: !c.online,
+        sel: {
+          key: `${c.clusterId}/node/${n.name}`,
+          title: n.name,
+          kind: "Nodo",
+          subtitle: roleTxt,
+          usage: n.usage ?? undefined,
+          node: {
+            clusterId: c.clusterId, name: n.name,
+            online: c.online, unschedulable: !!n.unschedulable,
+          },
+        },
       });
       edges.push({
         id: `e-${nid}`,
@@ -456,6 +478,7 @@ export function TopologyMap() {
   const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [showServices, setShowServices] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   // La vista elegida se recuerda entre sesiones (lo configurado, configurado queda).
   const [view, setViewRaw] = useState<ViewMode>(() => {
     const v = localStorage.getItem("atlas.view");
@@ -563,15 +586,27 @@ export function TopologyMap() {
           onClick={() => {
             setShowServices((v) => !v);
             setShowAudit(false);
+            setShowUsers(false);
           }}
         >
           Servicios
+        </button>
+        <button
+          className={`bar-btn${showUsers ? " active" : ""}`}
+          onClick={() => {
+            setShowUsers((v) => !v);
+            setShowAudit(false);
+            setShowServices(false);
+          }}
+        >
+          Usuarios
         </button>
         <button
           className={`bar-btn${showAudit ? " active" : ""}`}
           onClick={() => {
             setShowAudit((v) => !v);
             setShowServices(false);
+            setShowUsers(false);
           }}
         >
           Actividad
@@ -605,6 +640,7 @@ export function TopologyMap() {
         )}
         {showAudit && <AuditPanel onClose={() => setShowAudit(false)} />}
         {showServices && <ServicesPanel onClose={() => setShowServices(false)} />}
+        {showUsers && <UsersPanel onClose={() => setShowUsers(false)} />}
       </div>
     </div>
   );

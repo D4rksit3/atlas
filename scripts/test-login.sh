@@ -61,7 +61,35 @@ echo ">> 6) la auditoría registra los intentos de login"
 echo "$audit" | grep -q '"event":"auth.login"' || fail "no hay eventos auth.login en la auditoría"
 echo "$audit" | grep -q 'FALLIDO' || fail "el intento fallido no quedó auditado"
 
-echo ">> 7) fuerza bruta: el rate limit corta con 429"
+echo ">> 7) usuarios desde la GUI: crear viewer, RBAC, borrar"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/v1/users" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"username":"ana","password":"clave-de-ana-1","role":"viewer"}')
+[ "$code" = "201" ] || fail "crear usuario: esperaba 201, obtuve $code"
+curl -sf -H "Authorization: Bearer $TOKEN" "http://localhost:$PORT/v1/users" \
+  | grep -q '"username":"ana"' || fail "ana no aparece en la lista de usuarios"
+
+ANA=$(curl -sf -X POST "http://localhost:$PORT/v1/login" -H 'Content-Type: application/json' \
+  -d '{"username":"ana","password":"clave-de-ana-1"}' | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+[ -n "$ANA" ] || fail "ana no pudo iniciar sesión"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ANA" \
+  "http://localhost:$PORT/v1/topology")
+[ "$code" = "200" ] || fail "ana (viewer) debería LEER: esperaba 200, obtuve $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $ANA" \
+  -H 'Content-Type: application/json' -d '{"note":"x"}' "http://localhost:$PORT/v1/annotations/test")
+[ "$code" = "403" ] || fail "ana (viewer) NO debería escribir: esperaba 403, obtuve $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ANA" \
+  "http://localhost:$PORT/v1/users")
+[ "$code" = "403" ] || fail "ana (viewer) no debería gestionar usuarios: esperaba 403, obtuve $code"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:$PORT/v1/users/ana")
+[ "$code" = "200" ] || fail "borrar usuario: esperaba 200, obtuve $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/v1/login" \
+  -H 'Content-Type: application/json' -d '{"username":"ana","password":"clave-de-ana-1"}')
+[ "$code" = "401" ] || fail "ana borrada aún puede entrar: esperaba 401, obtuve $code"
+
+echo ">> 8) fuerza bruta: el rate limit corta con 429"
 got429=no
 for i in $(seq 1 12); do
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:$PORT/v1/login" \

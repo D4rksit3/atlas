@@ -46,6 +46,10 @@ func main() {
 	defer closeStore()
 	authn := buildAuth(*oidcIssuer, *oidcClientID, *rbacOperators,
 		*adminUser, *adminPassword, *sessionKey, *sessionTTL)
+	if authn != nil {
+		// Los usuarios creados desde la GUI (almacén) también pueden iniciar sesión.
+		authn.ConnectUserStore(store.UserAuth)
+	}
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
 	srv.SetRateLimit(*rateLimit, int(*rateLimit*2))
 

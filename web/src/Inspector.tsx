@@ -47,6 +47,7 @@ export function Inspector({
   const op = sel.op;
   const cluster = sel.cluster;
   const appOps = sel.app;
+  const nodeOps = sel.node;
 
   // edición de metadatos
   const [name, setName] = useState(annotation.displayName ?? "");
@@ -71,6 +72,19 @@ export function Inspector({
   const [diag, setDiag] = useState<string | null>(null);
   const [diagBusy, setDiagBusy] = useState(false);
   const [diagFb, setDiagFb] = useState<Feedback | null>(null);
+
+  // gestión del nodo (cordon / drain)
+  const [nodeBusy, setNodeBusy] = useState(false);
+  const [nodeFb, setNodeFb] = useState<Feedback | null>(null);
+  const [drainConfirm, setDrainConfirm] = useState(false);
+  const [drainOut, setDrainOut] = useState<string | null>(null);
+
+  // crear namespace (con cuotas)
+  const [nsName, setNsName] = useState("");
+  const [nsCPU, setNsCPU] = useState("");
+  const [nsMem, setNsMem] = useState("");
+  const [nsBusy, setNsBusy] = useState(false);
+  const [nsFb, setNsFb] = useState<Feedback | null>(null);
 
   // emisor TLS (cert-manager)
   const [issEmail, setIssEmail] = useState("");
@@ -252,6 +266,66 @@ export function Inspector({
     } catch (e) {
       setDiagBusy(false);
       setDiagFb({ text: `no se pudo pedir: ${String(e)}`, tone: "err" });
+    }
+  }
+
+  // ---- gestión del nodo (cordon / uncordon / drain) ----
+  async function nodeAction(kind: "cordon" | "uncordon" | "drain", verb: string) {
+    if (!nodeOps) return;
+    setNodeBusy(true);
+    setDrainOut(null);
+    setNodeFb({ text: `${verb}…`, tone: "info" });
+    try {
+      const a = await postAction(nodeOps.clusterId, { kind, node: nodeOps.name });
+      const iv = window.setInterval(async () => {
+        try {
+          const acts = await fetchActions(nodeOps.clusterId);
+          const act = acts.find((x) => x.id === a.id);
+          if (act?.status === "done") {
+            window.clearInterval(iv);
+            setNodeBusy(false);
+            setNodeFb({ text: `${verb} ✓`, tone: "ok" });
+            if (act.output) setDrainOut(act.output);
+          } else if (act?.status === "error") {
+            window.clearInterval(iv);
+            setNodeBusy(false);
+            setNodeFb({ text: `error: ${act.error}`, tone: "err" });
+          }
+        } catch {
+          /* reintenta */
+        }
+      }, 1500);
+    } catch (e) {
+      setNodeBusy(false);
+      setNodeFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
+    }
+  }
+
+  // ---- crear namespace con cuotas ----
+  async function createNS() {
+    if (!cluster || !nsName.trim()) {
+      setNsFb({ text: "pon un nombre de namespace", tone: "err" });
+      return;
+    }
+    setNsBusy(true);
+    setNsFb({ text: "creando namespace…", tone: "info" });
+    try {
+      const a = await postAction(cluster.clusterId, {
+        kind: "createns",
+        ns: { name: nsName.trim(), cpu: nsCPU.trim() || undefined, memory: nsMem.trim() || undefined },
+      });
+      trackAction(cluster.clusterId, a.id, (ok, err) => {
+        setNsBusy(false);
+        if (ok) {
+          setNsFb({ text: `namespace ${nsName.trim()} creado ✓`, tone: "ok" });
+          setNsName(""); setNsCPU(""); setNsMem("");
+        } else {
+          setNsFb({ text: `error: ${err}`, tone: "err" });
+        }
+      });
+    } catch (e) {
+      setNsBusy(false);
+      setNsFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
     }
   }
 
@@ -495,6 +569,27 @@ export function Inspector({
               </>
             )}
 
+            {/* ---- crear namespace con cuotas ---- */}
+            <div className="insp-section">Crear namespace</div>
+            <div className="insp-hint-sm">
+              Ordena el clúster por equipos/proyectos. Las cuotas (opcionales)
+              limitan el TOTAL de CPU/memoria del namespace (ResourceQuota).
+            </div>
+            <div className="proj-form">
+              <input className="insp-input" placeholder="nombre (p. ej. equipo-web)"
+                value={nsName} onChange={(e) => setNsName(e.target.value)} disabled={nsBusy} />
+              <div className="ns-quota-row">
+                <input className="insp-input" placeholder="CPU (p. ej. 2)"
+                  value={nsCPU} onChange={(e) => setNsCPU(e.target.value)} disabled={nsBusy} />
+                <input className="insp-input" placeholder="memoria (p. ej. 4Gi)"
+                  value={nsMem} onChange={(e) => setNsMem(e.target.value)} disabled={nsBusy} />
+              </div>
+              <button className="btn primary" onClick={createNS} disabled={nsBusy || !cluster.online || !nsName.trim()}>
+                {nsBusy ? "creando…" : "Crear namespace"}
+              </button>
+            </div>
+            {nsFb && <div className={`insp-fb ${nsFb.tone}`}>{nsFb.text}</div>}
+
             {/* ---- emisor TLS (si cert-manager está) ---- */}
             {isInstalled("cert-manager") && (
               <>
@@ -577,6 +672,54 @@ export function Inspector({
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {/* ---- gestión del nodo: cordon / drain / uncordon ---- */}
+        {nodeOps && (
+          <>
+            <div className="insp-section">Gestionar nodo</div>
+            {nodeOps.unschedulable && (
+              <div className="insp-note err">Este nodo está ACORDONADO: no acepta pods nuevos.</div>
+            )}
+            <div className="insp-actions">
+              {nodeOps.unschedulable ? (
+                <button className="btn primary" onClick={() => nodeAction("uncordon", "reabriendo")}
+                  disabled={nodeBusy || !nodeOps.online}>
+                  Reabrir (uncordon)
+                </button>
+              ) : (
+                <button className="btn" onClick={() => nodeAction("cordon", "acordonando")}
+                  disabled={nodeBusy || !nodeOps.online}>
+                  Acordonar
+                </button>
+              )}
+              {drainConfirm ? (
+                <>
+                  <button className="btn danger" disabled={nodeBusy}
+                    onClick={() => { setDrainConfirm(false); nodeAction("drain", "vaciando el nodo"); }}>
+                    Sí, vaciar
+                  </button>
+                  <button className="btn" onClick={() => setDrainConfirm(false)}>No</button>
+                </>
+              ) : (
+                <button className="btn danger-ghost" onClick={() => setDrainConfirm(true)}
+                  disabled={nodeBusy || !nodeOps.online}>
+                  Vaciar (drain)
+                </button>
+              )}
+            </div>
+            <div className="insp-hint-sm">
+              Vaciar = acordonar + desalojar sus pods (respeta PodDisruptionBudgets;
+              los DaemonSets se quedan). Para mantenimiento del servidor.
+            </div>
+            {nodeFb && <div className={`insp-fb ${nodeFb.tone}`}>{nodeFb.text}</div>}
+            {drainOut && (
+              <div className="diag-out-wrap">
+                <pre className="diag-out">{drainOut}</pre>
+                <button className="insp-x diag-close" onClick={() => setDrainOut(null)} aria-label="cerrar">×</button>
+              </div>
+            )}
           </>
         )}
 

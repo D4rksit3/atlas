@@ -107,6 +107,14 @@ func (a *Authenticator) Login(username, password string) (string, time.Time, err
 // HasLocal indica si el login local está activo.
 func (a *Authenticator) HasLocal() bool { return a.local != nil }
 
+// ConnectUserStore conecta los usuarios adicionales (creados desde la GUI) al
+// login local. Sin efecto si el login local no está activo.
+func (a *Authenticator) ConnectUserStore(fn UserLookup) {
+	if a.local != nil {
+		a.local.SetUserLookup(fn)
+	}
+}
+
 type claims struct {
 	Email  string   `json:"email"`
 	Groups []string `json:"groups"`

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -200,6 +202,14 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.uninstallAddon(ctx, act.Addon)
 	case api.ActionUnexpose:
 		err = a.unexpose(ctx, act.Expose)
+	case api.ActionCordon:
+		err = a.setUnschedulable(ctx, act.Node, true)
+	case api.ActionUncordon:
+		err = a.setUnschedulable(ctx, act.Node, false)
+	case api.ActionDrain:
+		output, err = a.drain(ctx, act.Node)
+	case api.ActionCreateNS:
+		err = a.createNamespace(ctx, act.NS)
 	case api.ActionSync:
 		err = a.syncApp(ctx, act.App)
 	case api.ActionRollback:
@@ -560,6 +570,117 @@ func (a *KubeActuator) expose(ctx context.Context, spec *api.ExposeSpec) error {
 		"spec":       ingSpec,
 	}}
 	return a.applyOne(ctx, ing, spec.Namespace)
+}
+
+// setUnschedulable acordona (true) o reabre (false) un nodo, igual que
+// `kubectl cordon/uncordon`.
+func (a *KubeActuator) setUnschedulable(ctx context.Context, node string, on bool) error {
+	if node == "" {
+		return fmt.Errorf("falta el nombre del nodo")
+	}
+	patch := []byte(fmt.Sprintf(`{"spec":{"unschedulable":%t}}`, on))
+	_, err := a.client.CoreV1().Nodes().Patch(ctx, node, types.StrategicMergePatchType, patch, metav1.PatchOptions{})
+	return err
+}
+
+// drain vacía un nodo para mantenimiento: lo acordona y DESALOJA sus pods con
+// la API de eviction (respeta PodDisruptionBudgets). Los pods de DaemonSet y los
+// mirror pods se quedan (como `kubectl drain --ignore-daemonsets`).
+func (a *KubeActuator) drain(ctx context.Context, node string) (string, error) {
+	if err := a.setUnschedulable(ctx, node, true); err != nil {
+		return "", fmt.Errorf("acordonando %s: %w", node, err)
+	}
+	pods, err := a.client.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
+		FieldSelector: "spec.nodeName=" + node,
+	})
+	if err != nil {
+		return "", fmt.Errorf("listando pods de %s: %w", node, err)
+	}
+	var evicted, skipped []string
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if isDaemonSetPod(p) || isMirrorPod(p) {
+			skipped = append(skipped, p.Namespace+"/"+p.Name)
+			continue
+		}
+		ev := &policyv1.Eviction{ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace}}
+		if err := a.client.PolicyV1().Evictions(p.Namespace).Evict(ctx, ev); err != nil {
+			// Un PDB puede negarse: se reporta y se sigue con el resto.
+			skipped = append(skipped, fmt.Sprintf("%s/%s (%v)", p.Namespace, p.Name, err))
+			continue
+		}
+		evicted = append(evicted, p.Namespace+"/"+p.Name)
+	}
+	out := fmt.Sprintf("nodo %s acordonado\ndesalojados (%d):\n  %s\nse quedan (%d, daemonsets/mirror/PDB):\n  %s",
+		node, len(evicted), strings.Join(evicted, "\n  "), len(skipped), strings.Join(skipped, "\n  "))
+	return out, nil
+}
+
+func isDaemonSetPod(p *corev1.Pod) bool {
+	for _, o := range p.OwnerReferences {
+		if o.Controller != nil && *o.Controller && o.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
+}
+
+func isMirrorPod(p *corev1.Pod) bool {
+	_, ok := p.Annotations["kubernetes.io/config.mirror"]
+	return ok
+}
+
+// createNamespace crea un namespace y, si se pidieron cuotas, una ResourceQuota
+// con los límites totales de CPU/memoria del namespace.
+func (a *KubeActuator) createNamespace(ctx context.Context, spec *api.NamespaceSpec) error {
+	if spec == nil || spec.Name == "" {
+		return fmt.Errorf("falta el nombre del namespace")
+	}
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   spec.Name,
+		Labels: map[string]string{"app.kubernetes.io/managed-by": "atlas"},
+	}}
+	if _, err := a.client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creando el namespace: %w", err)
+		}
+	}
+	if spec.CPU == "" && spec.Memory == "" {
+		return nil
+	}
+	hard := corev1.ResourceList{}
+	if spec.CPU != "" {
+		q, err := resource.ParseQuantity(spec.CPU)
+		if err != nil {
+			return fmt.Errorf("cuota de CPU inválida %q: %w", spec.CPU, err)
+		}
+		hard[corev1.ResourceLimitsCPU] = q
+		hard[corev1.ResourceRequestsCPU] = q
+	}
+	if spec.Memory != "" {
+		q, err := resource.ParseQuantity(spec.Memory)
+		if err != nil {
+			return fmt.Errorf("cuota de memoria inválida %q: %w", spec.Memory, err)
+		}
+		hard[corev1.ResourceLimitsMemory] = q
+		hard[corev1.ResourceRequestsMemory] = q
+	}
+	rq := &corev1.ResourceQuota{
+		ObjectMeta: metav1.ObjectMeta{Name: "atlas-quota", Namespace: spec.Name,
+			Labels: map[string]string{"app.kubernetes.io/managed-by": "atlas"}},
+		Spec: corev1.ResourceQuotaSpec{Hard: hard},
+	}
+	if _, err := a.client.CoreV1().ResourceQuotas(spec.Name).Create(ctx, rq, metav1.CreateOptions{}); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			_, err = a.client.CoreV1().ResourceQuotas(spec.Name).Update(ctx, rq, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("actualizando la cuota: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("creando la cuota: %w", err)
+	}
+	return nil
 }
 
 // sharedNamespaces son namespaces que NUNCA se borran al desinstalar: no son

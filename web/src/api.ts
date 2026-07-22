@@ -4,8 +4,8 @@ import { getToken } from "./auth";
 
 export type Provider = "onprem" | "aws" | "oci";
 
-/** authHeaders añade el Bearer OIDC si hay sesión (si no, va sin auth: dev). */
-function authHeaders(extra?: Record<string, string>): Record<string, string> {
+/** authHeaders añade el Bearer de la sesión si la hay (si no, va sin auth: dev). */
+export function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const h: Record<string, string> = { ...(extra ?? {}) };
   const t = getToken();
   if (t) h["Authorization"] = `Bearer ${t}`;
@@ -16,6 +16,7 @@ export interface Node {
   name: string;
   role: "control-plane" | "worker" | string;
   ready: boolean;
+  unschedulable?: boolean;
   usage?: Usage | null;
 }
 
@@ -194,7 +195,11 @@ export type ActionKind =
   | "uninstall"
   | "unexpose"
   | "logs"
-  | "events";
+  | "events"
+  | "cordon"
+  | "uncordon"
+  | "drain"
+  | "createns";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 // ExposeSpec: publicar un servicio (crear su Ingress host -> service).
@@ -219,6 +224,8 @@ export interface ActionRequest {
   app?: AppSpec; // solo para addapp
   issuer?: IssuerSpec; // solo para issuer (crear emisor TLS)
   expose?: ExposeSpec; // solo para expose (publicar un servicio)
+  node?: string; // nodo objetivo (cordon/uncordon/drain)
+  ns?: { name: string; cpu?: string; memory?: string }; // solo createns
 }
 
 export interface Action {

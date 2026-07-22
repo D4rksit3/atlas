@@ -23,12 +23,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// UserLookup resuelve un usuario ADICIONAL del almacén (creados desde la GUI):
+// devuelve su hash bcrypt y su rol, o ok=false si no existe.
+type UserLookup func(username string) (hash, role string, ok bool)
+
 // Local autentica con el usuario/contraseña integrados de Atlas.
 type Local struct {
 	username string
 	hash     []byte // bcrypt de la contraseña
 	key      []byte // clave HMAC de las sesiones
 	ttl      time.Duration
+	lookup   UserLookup // usuarios adicionales (GUI); nil = solo el admin
+}
+
+// SetUserLookup conecta los usuarios adicionales del almacén (GUI).
+func (l *Local) SetUserLookup(fn UserLookup) { l.lookup = fn }
+
+// HashPassword genera el hash bcrypt de una contraseña (para guardar usuarios).
+func HashPassword(password string) (string, error) {
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(h), err
 }
 
 // ErrBadCredentials cubre usuario o contraseña incorrectos — a propósito
@@ -71,21 +85,36 @@ func NewLocal(username, password string, sessionKey []byte, ttl time.Duration) (
 // sessionClaims es el contenido firmado de un token de sesión local.
 type sessionClaims struct {
 	User string `json:"u"`
-	Exp  int64  `json:"exp"` // epoch segundos
+	Role string `json:"r,omitempty"` // viewer | operator (vacío = operator, admin histórico)
+	Exp  int64  `json:"exp"`         // epoch segundos
 }
 
-// Login verifica las credenciales y, si son correctas, emite un token de sesión
-// firmado con su caducidad.
+// Login verifica las credenciales (el admin integrado o un usuario del almacén)
+// y, si son correctas, emite un token de sesión firmado con su caducidad y rol.
 func (l *Local) Login(username, password string) (token string, exp time.Time, err error) {
-	// Comparaciones en tiempo constante: ni el usuario ni la contraseña filtran
-	// cuál de los dos falló.
+	// 1) El admin integrado. Comparaciones en tiempo constante.
 	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(l.username)) == 1
 	passErr := bcrypt.CompareHashAndPassword(l.hash, []byte(password))
-	if !userOK || passErr != nil {
-		return "", time.Time{}, ErrBadCredentials
+	if userOK && passErr == nil {
+		return l.mint(l.username, RoleOperator)
 	}
-	exp = time.Now().Add(l.ttl)
-	payload, _ := json.Marshal(sessionClaims{User: l.username, Exp: exp.Unix()})
+	// 2) Usuarios creados desde la GUI (almacén), con su rol.
+	if l.lookup != nil {
+		if hash, role, ok := l.lookup(username); ok {
+			if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil {
+				if role != RoleOperator {
+					role = RoleViewer
+				}
+				return l.mint(username, role)
+			}
+		}
+	}
+	return "", time.Time{}, ErrBadCredentials
+}
+
+func (l *Local) mint(username, role string) (string, time.Time, error) {
+	exp := time.Now().Add(l.ttl)
+	payload, _ := json.Marshal(sessionClaims{User: username, Role: role, Exp: exp.Unix()})
 	body := base64.RawURLEncoding.EncodeToString(payload)
 	return body + "." + l.sign(body), exp, nil
 }
@@ -110,8 +139,11 @@ func (l *Local) Verify(token string) (User, bool) {
 	if time.Now().Unix() >= c.Exp {
 		return User{}, false
 	}
-	// El admin local siempre es operador: es quien instaló la plataforma.
-	return User{Subject: "local:" + c.User, Email: c.User, Role: RoleOperator}, true
+	role := c.Role
+	if role == "" {
+		role = RoleOperator // tokens del admin (histórico: sin claim de rol)
+	}
+	return User{Subject: "local:" + c.User, Email: c.User, Role: role}, true
 }
 
 func (l *Local) sign(body string) string {

@@ -156,6 +156,38 @@ for i in $(seq 1 30); do
 done
 check "el Ingress atlas-demo-web desapareció" yes "$ok"
 
+echo "== gestión de nodos: cordon / uncordon =="
+NODE=$(kubectl get nodes -o name | head -1 | cut -d/ -f2)
+api -o /dev/null -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"cordon\",\"node\":\"$NODE\"}" "http://$DOMAIN:$PORT/v1/clusters/$CID/actions"
+ok=no
+for i in $(seq 1 20); do
+  [ "$(kubectl get node "$NODE" -o jsonpath='{.spec.unschedulable}')" = "true" ] && ok=yes && break
+  sleep 2
+done
+check "el nodo queda acordonado" yes "$ok"
+api -o /dev/null -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"uncordon\",\"node\":\"$NODE\"}" "http://$DOMAIN:$PORT/v1/clusters/$CID/actions"
+ok=no
+for i in $(seq 1 20); do
+  [ "$(kubectl get node "$NODE" -o jsonpath='{.spec.unschedulable}')" != "true" ] && ok=yes && break
+  sleep 2
+done
+check "el nodo se reabre" yes "$ok"
+
+echo "== namespace con cuotas desde la GUI =="
+api -o /dev/null -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"createns","ns":{"name":"equipo-demo","cpu":"1","memory":"1Gi"}}' \
+  "http://$DOMAIN:$PORT/v1/clusters/$CID/actions"
+ok=no
+for i in $(seq 1 20); do
+  kubectl get ns equipo-demo >/dev/null 2>&1 && ok=yes && break
+  sleep 2
+done
+check "namespace equipo-demo creado" yes "$ok"
+hard=$(kubectl -n equipo-demo get resourcequota atlas-quota -o jsonpath='{.spec.hard.limits\.cpu} {.spec.hard.limits\.memory}' 2>/dev/null)
+check "cuota aplicada (cpu+mem)" "1 1Gi" "$hard"
+
 echo "== ciclo completo de un complemento: instalar y DESINSTALAR (metallb) =="
 kubectl apply -f deploy/agent-addons.yaml >/dev/null   # RBAC amplio opt-in
 AID=$(api -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \

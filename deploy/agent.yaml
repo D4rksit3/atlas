@@ -32,6 +32,19 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log", "events"]
     verbs: ["get", "list"]
+  # Gestión de nodos desde la GUI: cordon/uncordon (patch del nodo) y drain
+  # (desalojo vía eviction, que respeta PodDisruptionBudgets).
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  # Namespaces con cuotas desde la GUI (createns). El agente ya crea namespaces
+  # al instalar complementos; la cuota acompaña al namespace nuevo.
+  - apiGroups: [""]
+    resources: ["namespaces", "resourcequotas"]
+    verbs: ["get", "list", "create", "update"]
   # Lectura de cargas + escritura acotada para ejecutar acciones de la GUI
   # (escalar = update; reiniciar = patch). No puede crear ni borrar cargas.
   - apiGroups: ["apps"]

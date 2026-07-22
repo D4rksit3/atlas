@@ -25,6 +25,15 @@ export interface Selection {
   app?: AppOps; // presente solo si es un proyecto GitOps
   pods?: PodInfo[]; // pods de la carga con sus IPs (para el Inspector)
   usage?: Usage; // CPU/memoria en uso (metrics-server)
+  node?: NodeOps; // presente solo si es un NODO del clúster (cordon/drain)
+}
+
+// NodeOps: acciones sobre un nodo (acordonar / vaciar / reabrir).
+export interface NodeOps {
+  clusterId: string;
+  name: string;
+  online: boolean;
+  unschedulable: boolean;
 }
 
 // AppOps: acciones sobre un proyecto GitOps (sincronizar / revertir) + su árbol.

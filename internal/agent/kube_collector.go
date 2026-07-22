@@ -88,9 +88,10 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 	for i := range nodes.Items {
 		n := &nodes.Items[i]
 		snap.Nodes = append(snap.Nodes, api.Node{
-			Name:  n.Name,
-			Role:  nodeRole(n),
-			Ready: nodeReady(n),
+			Name:          n.Name,
+			Role:          nodeRole(n),
+			Ready:         nodeReady(n),
+			Unschedulable: n.Spec.Unschedulable,
 		})
 	}
 

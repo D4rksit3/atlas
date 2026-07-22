@@ -83,6 +83,10 @@ func (s *Server) Routes() http.Handler {
 	// Editar el mapa (metadatos): leer -> viewer; escribir -> operator.
 	mux.Handle("GET /v1/annotations", s.guard(auth.RoleViewer, s.handleListAnnotations))
 	mux.Handle("PUT /v1/annotations/{key...}", s.guard(auth.RoleOperator, s.handleSetAnnotation))
+	// Usuarios locales (equipo): gestionarlos exige rol operator.
+	mux.Handle("GET /v1/users", s.guard(auth.RoleOperator, s.handleListUsers))
+	mux.Handle("POST /v1/users", s.guard(auth.RoleOperator, s.handleCreateUser))
+	mux.Handle("DELETE /v1/users/{name}", s.guard(auth.RoleOperator, s.handleDeleteUser))
 	// Orden: cabeceras de seguridad -> CORS -> rate limit -> observabilidad -> rutas.
 	return withSecurityHeaders(withCORS(s.corsOrigin, s.withRateLimit(s.withObservability(mux))))
 }
@@ -141,6 +145,86 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"user":  req.Username,
 		"exp":   exp.Unix(),
 	})
+}
+
+// ---- usuarios locales (gestión del equipo desde la GUI) ----
+
+func (s *Server) handleListUsers(w http.ResponseWriter, _ *http.Request) {
+	users, err := s.store.ListUsers()
+	if err != nil {
+		log.Printf("listando usuarios: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudieron leer los usuarios")
+		return
+	}
+	if users == nil {
+		users = []api.LocalUser{}
+	}
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil || !s.auth.HasLocal() {
+		writeError(w, http.StatusBadRequest, "el login local no está activo (los usuarios locales requieren ATLAS_ADMIN_PASSWORD)")
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if len(req.Username) < 2 || len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "usuario (≥2) y contraseña (≥8 caracteres) son obligatorios")
+		return
+	}
+	if req.Role != auth.RoleOperator {
+		req.Role = auth.RoleViewer
+	}
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "no se pudo procesar la contraseña")
+		return
+	}
+	actor := "dev"
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		actor = u.Email
+	}
+	if err := s.store.CreateUser(req.Username, hash, req.Role, actor, time.Now()); err != nil {
+		if errors.Is(err, ErrUserExists) {
+			writeError(w, http.StatusConflict, "ese usuario ya existe")
+			return
+		}
+		log.Printf("creando usuario %q: %v", req.Username, err)
+		writeError(w, http.StatusInternalServerError, "no se pudo crear el usuario")
+		return
+	}
+	log.Printf("usuario %q (rol %s) creado por %q", req.Username, req.Role, actor)
+	writeJSON(w, http.StatusCreated, api.LocalUser{Username: req.Username, Role: req.Role, CreatedBy: actor, CreatedAt: time.Now()})
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	actor := "dev"
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		actor = u.Email
+	}
+	if name == actor {
+		writeError(w, http.StatusBadRequest, "no puedes borrar tu propio usuario en sesión")
+		return
+	}
+	if err := s.store.DeleteUser(name, actor, time.Now()); err != nil {
+		if errors.Is(err, ErrUnknownUser) {
+			writeError(w, http.StatusNotFound, "usuario desconocido")
+			return
+		}
+		log.Printf("borrando usuario %q: %v", name, err)
+		writeError(w, http.StatusInternalServerError, "no se pudo borrar el usuario")
+		return
+	}
+	log.Printf("usuario %q eliminado por %q", name, actor)
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": name})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

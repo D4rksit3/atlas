@@ -25,6 +25,13 @@ type MemStore struct {
 	offlineAfter time.Duration
 	audit        []api.AuditEntry          // rastro de auditoría (más antiguo primero)
 	annotations  map[string]api.Annotation // metadatos del mapa por clave
+	users        map[string]localUserRec   // usuarios locales creados desde la GUI
+}
+
+// localUserRec guarda un usuario local con su hash bcrypt (nunca sale de aquí).
+type localUserRec struct {
+	hash string
+	info api.LocalUser
 }
 
 const maxAudit = 1000 // tope del registro en memoria
@@ -36,6 +43,7 @@ func NewMemStore(offlineAfter time.Duration) *MemStore {
 		clusters:     make(map[string]*clusterState),
 		offlineAfter: offlineAfter,
 		annotations:  make(map[string]api.Annotation),
+		users:        make(map[string]localUserRec),
 	}
 }
 
@@ -123,7 +131,7 @@ func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, actor 
 		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
 		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
 		Addon: req.Addon, Values: req.Values, App: req.App, Issuer: req.Issuer,
-		Expose: req.Expose,
+		Expose: req.Expose, Node: req.Node, NS: req.NS,
 		Status: api.ActionPending, RequestedBy: actor, CreatedAt: now, UpdatedAt: now,
 	}
 	cs.actions = append(cs.actions, a)
@@ -231,6 +239,57 @@ func (s *MemStore) RecordLogin(user, ip string, ok bool, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.appendAudit(loginAuditEntry(user, ip, ok, now))
+}
+
+func (s *MemStore) CreateUser(username, hash, role, actor string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[username]; exists {
+		return ErrUserExists
+	}
+	s.users[username] = localUserRec{hash: hash, info: api.LocalUser{
+		Username: username, Role: role, CreatedBy: actor, CreatedAt: now,
+	}}
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditUser,
+		Summary: fmt.Sprintf("creó el usuario %q (rol %s)", username, role), Outcome: "ok",
+	})
+	return nil
+}
+
+func (s *MemStore) DeleteUser(username, actor string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[username]; !exists {
+		return ErrUnknownUser
+	}
+	delete(s.users, username)
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditUser,
+		Summary: fmt.Sprintf("eliminó el usuario %q", username), Outcome: "ok",
+	})
+	return nil
+}
+
+func (s *MemStore) ListUsers() ([]api.LocalUser, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]api.LocalUser, 0, len(s.users))
+	for _, u := range s.users {
+		out = append(out, u.info)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Username < out[b].Username })
+	return out, nil
+}
+
+func (s *MemStore) UserAuth(username string) (string, string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.users[username]
+	if !ok {
+		return "", "", false
+	}
+	return u.hash, u.info.Role, true
 }
 
 func (s *MemStore) ListAudit(limit int) ([]api.AuditEntry, error) {
