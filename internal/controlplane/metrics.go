@@ -17,6 +17,7 @@ type Metrics struct {
 	Heartbeats      atomic.Int64
 	HeartbeatErrors atomic.Int64
 	Actions         atomic.Int64
+	AgentStreams    atomic.Int64 // streams gRPC de agentes conectados ahora mismo
 }
 
 // NewMetrics crea un registro de métricas vacío.
@@ -42,6 +43,7 @@ func (m *Metrics) WriteProm(w io.Writer, store Store) {
 	metric(w, "atlas_heartbeats_total", "Latidos aceptados.", "counter", m.Heartbeats.Load())
 	metric(w, "atlas_heartbeat_errors_total", "Latidos rechazados (token/clúster inválido).", "counter", m.HeartbeatErrors.Load())
 	metric(w, "atlas_actions_total", "Acciones encoladas desde la GUI.", "counter", m.Actions.Load())
+	metric(w, "atlas_agent_streams", "Streams gRPC de agentes conectados.", "gauge", m.AgentStreams.Load())
 	metric(w, "atlas_clusters_total", "Clústeres registrados.", "gauge", int64(total))
 	metric(w, "atlas_clusters_online", "Clústeres online (con latido reciente).", "gauge", int64(online))
 }

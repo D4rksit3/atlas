@@ -31,6 +31,7 @@ func main() {
 	tlsCA := flag.String("tls-ca", os.Getenv("ATLAS_TLS_CA"), "CA para verificar el certificado del control plane")
 	tlsCRL := flag.String("tls-crl", os.Getenv("ATLAS_TLS_CRL"), "CRL firmada por la CA: rechaza un servidor con cert revocado (opcional)")
 	workers := flag.Int("sample-workers", 3, "nº de nodos worker en el colector de ejemplo")
+	transport := flag.String("transport", envOr("ATLAS_TRANSPORT", "http"), "grpc (stream: las órdenes llegan al instante) | http (latido clásico)")
 	flag.Parse()
 
 	id := *clusterID
@@ -106,9 +107,20 @@ func main() {
 		cancel()
 	}()
 
-	log.Printf("agente %s arrancando (clúster=%q id=%q provider=%s)", agent.Version, cfg.Name, cfg.ClusterID, cfg.Provider)
-	if err := a.Run(ctx); err != nil && err != context.Canceled {
-		log.Fatalf("agente terminó con error: %v", err)
+	log.Printf("agente %s arrancando (clúster=%q id=%q provider=%s transporte=%s)", agent.Version, cfg.Name, cfg.ClusterID, cfg.Provider, *transport)
+	// Dos transportes, misma semántica: gRPC = stream bidireccional (órdenes al
+	// instante); http = latido clásico (órdenes en la respuesta del latido).
+	var runErr error
+	switch *transport {
+	case "grpc":
+		runErr = a.RunGRPC(ctx)
+	case "http":
+		runErr = a.Run(ctx)
+	default:
+		log.Fatalf("transporte desconocido %q (usa: grpc | http)", *transport)
+	}
+	if runErr != nil && runErr != context.Canceled {
+		log.Fatalf("agente terminó con error: %v", runErr)
 	}
 }
 

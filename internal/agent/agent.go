@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/atlasctl/atlas/pkg/api"
@@ -39,6 +40,7 @@ type Agent struct {
 
 	token          string
 	interval       time.Duration
+	mu             sync.Mutex         // protege pendingResults (en gRPC hay concurrencia)
 	pendingResults []api.ActionResult // resultados a reportar en el próximo latido
 }
 
@@ -141,20 +143,23 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		log.Printf("colector falló, salto este latido: %v", err)
 		return nil
 	}
-	hb := api.Heartbeat{Token: a.token, Snapshot: snap, Results: a.pendingResults}
+	pending := a.takePendingResults()
+	hb := api.Heartbeat{Token: a.token, Snapshot: snap, Results: pending}
 	path := "/v1/agents/" + a.cfg.ClusterID + "/heartbeat"
 
 	var resp api.HeartbeatResponse
 	if err := a.post(ctx, path, hb, &resp); err != nil {
-		return err // no limpiamos pendingResults: se reintentan en el próximo latido
+		// Devolvemos los resultados a la cola: se reintentan en el próximo latido.
+		for _, r := range pending {
+			a.stashResult(r)
+		}
+		return err
 	}
-	// El control plane aceptó el latido (y con él nuestros resultados): límpialos.
-	a.pendingResults = nil
 
 	// Ejecuta las acciones que llegaron de vuelta; sus resultados irán en el
 	// próximo latido.
 	for _, act := range resp.Actions {
-		a.pendingResults = append(a.pendingResults, a.execute(ctx, act))
+		a.stashResult(a.execute(ctx, act))
 	}
 	return nil
 }

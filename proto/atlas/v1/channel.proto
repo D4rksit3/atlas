@@ -1,0 +1,64 @@
+// Canal bidireccional agente <-> control plane sobre gRPC (HTTP/2).
+//
+// Sustituye al latido HTTP como transporte preferido: el agente abre UN stream
+// saliente de larga vida (mismo puerto :8080, misma mTLS) y por él viajan, en
+// ambos sentidos y al instante:
+//   agente -> control plane: hello (registro), snapshots, resultados de acciones
+//   control plane -> agente: ack (intervalo) y ACCIONES según la GUI las encola
+//
+// La ventaja sobre HTTP es la vuelta: antes las órdenes esperaban al siguiente
+// latido (hasta N segundos); con el stream llegan en cuanto se encolan.
+//
+// Los cuerpos grandes (Snapshot, Action, ActionResult) viajan como JSON de
+// pkg/api A PROPÓSITO: pkg/api es la única fuente de verdad del esquema (misma
+// validación, mismos tests) y así el transporte HTTP y el gRPC no pueden
+// divergir. El proto solo define el SOBRE (quién habla y qué tipo de mensaje).
+//
+// Regenerar (make proto):
+//   protoc --go_out=. --go_opt=module=github.com/atlasctl/atlas \
+//          --go-grpc_out=. --go-grpc_opt=module=github.com/atlasctl/atlas \
+//          proto/atlas/v1/channel.proto
+syntax = "proto3";
+
+package atlas.v1;
+
+option go_package = "github.com/atlasctl/atlas/internal/channelpb";
+
+// AgentChannel es el servicio que expone el control plane a los agentes.
+service AgentChannel {
+  // Connect es el stream bidireccional de larga vida. El PRIMER mensaje del
+  // agente debe ser Hello; el control plane responde Ack y a partir de ahí
+  // ambos lados hablan cuando quieren.
+  rpc Connect(stream AgentMessage) returns (stream ServerMessage);
+}
+
+// AgentMessage: lo que el agente puede enviar por el stream.
+message AgentMessage {
+  oneof msg {
+    Hello hello = 1;          // primer mensaje: registro del clúster
+    bytes snapshot_json = 2;  // api.Snapshot (JSON) — el "latido" periódico
+    bytes result_json = 3;    // api.ActionResult (JSON) — al terminar una acción
+  }
+}
+
+// ServerMessage: lo que el control plane puede enviar por el stream.
+message ServerMessage {
+  oneof msg {
+    Ack ack = 1;            // respuesta al Hello
+    bytes action_json = 2;  // api.Action (JSON) — orden de la GUI, al instante
+  }
+}
+
+// Hello registra el clúster (mismos campos que api.RegisterRequest).
+message Hello {
+  string cluster_id = 1;
+  string name = 2;
+  string provider = 3;
+  string agent_version = 4;
+}
+
+// Ack confirma el registro. No devuelve token: el propio stream (autenticado
+// por mTLS) ES la sesión; el control plane lo guarda internamente.
+message Ack {
+  int32 snapshot_interval_seconds = 1; // cadencia de snapshots que se pide
+}

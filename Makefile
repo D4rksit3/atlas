@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up install build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-rotation test-revocation test-netpol test-ingress test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade test-install vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-rotation test-revocation test-netpol test-grpc proto test-ingress test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade test-install vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -57,6 +57,14 @@ test-revocation: ## E2E: revocación inmediata de certs (CRL firmada por la CA +
 
 test-netpol: ## E2E: acotado de egress por componente (NetworkPolicy default-deny, k3d)
 	./scripts/test-netpol.sh
+
+test-grpc: ## E2E: transporte gRPC bidireccional (push instantáneo + reconexión + mTLS)
+	./scripts/test-grpc.sh
+
+proto: ## Regenera el código Go del canal gRPC (requiere protoc + plugins go)
+	protoc --go_out=. --go_opt=module=github.com/atlasctl/atlas \
+	       --go-grpc_out=. --go-grpc_opt=module=github.com/atlasctl/atlas \
+	       proto/atlas/v1/channel.proto
 
 test-ingress: ## E2E: publicar servicios — ingress-nginx + cert-manager + ClusterIssuer desde la GUI (k3d)
 	./scripts/test-ingress.sh

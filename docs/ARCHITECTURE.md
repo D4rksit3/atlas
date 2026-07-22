@@ -27,11 +27,25 @@ lenguaje visual del diagrama de arquitectura de referencia.
 
 ## Flujo de datos
 
+Dos transportes con la misma semántica, mismo puerto y misma mTLS (el gRPC se
+multiplexa con la API REST por content-type; ver `MixedHandler`):
+
 ```
-  Agente.Collect()  ->  POST /v1/agents/{id}/heartbeat  ->  Store
-                                                             │
-  GUI (poll 5s)     <-  GET /v1/topology                 <──┘
+  gRPC (preferido, --transport grpc): UN stream bidireccional de larga vida
+    Agente ── hello / snapshots / resultados ──> Control plane ──> Store
+    Agente <── acciones AL INSTANTE (hub) ────── Control plane <── GUI encola
+
+  HTTP (clásico, --transport http): latido con las órdenes en la respuesta
+    Agente.Collect()  ->  POST /v1/agents/{id}/heartbeat  ->  Store
+                                                               │
+    GUI (poll 5s)     <-  GET /v1/topology                 <──┘
 ```
+
+Con gRPC las órdenes de la GUI no esperan al siguiente latido: el `hub` del
+control plane despierta al stream del clúster en cuanto se encolan (~50ms de
+viaje completo vs hasta N segundos). El contrato del sobre está en
+`proto/atlas/v1/channel.proto`; los cuerpos siguen siendo el JSON de `pkg/api`
+(única fuente de verdad, común a ambos transportes).
 
 ## Contrato
 
@@ -40,8 +54,6 @@ formato de datos; la GUI los replica en `web/src/api.ts`.
 
 ## Decisiones abiertas (para discutir en issues)
 
-- **Transporte agente↔control plane:** HTTP+latido (hoy) vs gRPC bidireccional /
-  WebSocket (comandos control-plane→agente, streaming).
 - **Aprovisionamiento:** integrar **Cluster API** para crear/unir clústeres en
   los tres entornos con una sola abstracción.
 - **Identidad:** mTLS con rotación de certificados en vez del token de sesión.

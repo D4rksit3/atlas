@@ -21,6 +21,7 @@ type Server struct {
 	corsOrigin        string
 	auth              *auth.Authenticator // nil = auth deshabilitada (desarrollo)
 	limiter           *ipLimiter          // nil = sin rate limiting
+	hub               *hub                // timbre GUI -> streams gRPC (empuje al instante)
 }
 
 // SetRateLimit configura el límite por IP (peticiones/segundo y ráfaga). perSec<=0
@@ -48,6 +49,7 @@ func NewServer(store Store, heartbeatInterval int, corsOrigin string, authn *aut
 		corsOrigin:        corsOrigin,
 		auth:              authn,
 		limiter:           newIPLimiter(20, 40), // por defecto: 20 req/s por IP
+		hub:               newHub(),
 	}
 }
 
@@ -190,6 +192,9 @@ func (s *Server) handleEnqueueAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "no se pudo encolar la acción")
 	default:
 		s.metrics.Actions.Add(1)
+		// Si el agente está conectado por stream gRPC, esto le empuja la acción
+		// AL INSTANTE; si va por HTTP, la recogerá en su próximo latido.
+		s.hub.notify(id)
 		log.Printf("acción encolada en %q por %q: %s %s/%s", id, actor, action.Kind, action.Namespace, action.Workload)
 		writeJSON(w, http.StatusAccepted, action)
 	}

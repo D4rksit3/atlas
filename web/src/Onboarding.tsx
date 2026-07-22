@@ -80,6 +80,7 @@ spec:
           image: ghcr.io/atlasctl/atlas-agent:latest
           args:
             - "--collector=kube"
+            - "--transport=grpc"
             - "--name=${name || "mi clúster"}"
             - "--provider=${provider}"
             - "--cluster-id=${id}"

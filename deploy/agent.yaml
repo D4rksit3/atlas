@@ -87,6 +87,7 @@ spec:
           image: ghcr.io/atlasctl/atlas-agent:latest
           args:
             - "--collector=kube"       # lee este clúster real (in-cluster)
+            - "--transport=grpc"       # stream bidireccional: órdenes al instante
             - "--name=$(CLUSTER_NAME)"
             - "--provider=$(PROVIDER)"
             # Conexiones reales entre servicios (requiere Cilium + Hubble Relay).

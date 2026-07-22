@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
+
 	"github.com/atlasctl/atlas/internal/auth"
 	"github.com/atlasctl/atlas/internal/controlplane"
 	"github.com/atlasctl/atlas/internal/mtls"
@@ -41,11 +44,17 @@ func main() {
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
 	srv.SetRateLimit(*rateLimit, int(*rateLimit*2))
 
+	// Un solo puerto para todo: las peticiones gRPC (streams de agentes) van al
+	// canal bidireccional y el resto a la API REST. Así gRPC hereda la misma
+	// mTLS y las mismas NetworkPolicy sin cambios de despliegue.
+	handler := controlplane.MixedHandler(srv.GRPC(), srv.Routes())
+
 	httpServer := &http.Server{
 		Addr:              *addr,
-		Handler:           srv.Routes(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		// Sin WriteTimeout: los streams gRPC viven horas y un timeout de escritura
+		// los cortaría. Los handlers REST son cortos por diseño.
 	}
 
 	// mTLS opcional: si se dan los tres ficheros, exigimos certificado de cliente
@@ -63,6 +72,10 @@ func main() {
 		if *tlsCRL != "" {
 			log.Printf("revocación activa: compruebo cada agente contra la CRL %s (recarga en caliente)", *tlsCRL)
 		}
+	} else {
+		// Sin TLS (desarrollo) el HTTP/2 no se negocia solo (eso lo hace ALPN en
+		// el handshake TLS); h2c lo habilita en claro para que gRPC funcione.
+		httpServer.Handler = h2c.NewHandler(handler, &http2.Server{})
 	}
 
 	// Arranque en goroutine para poder hacer shutdown ordenado.
