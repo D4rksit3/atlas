@@ -104,6 +104,14 @@ spec:
             # - "--links=hubble"
             # - "--hubble-server=hubble-relay.kube-system:80"
           env:
+            # Caché escribible para Helm (readOnlyRootFilesystem): sin esto,
+            # instalar complementos por chart falla al bajar el repo/chart.
+            - name: HELM_CACHE_HOME
+              value: "/helm/cache"
+            - name: HELM_CONFIG_HOME
+              value: "/helm/config"
+            - name: HELM_DATA_HOME
+              value: "/helm/data"
             # A dónde marca hacia casa el agente (conexión saliente).
             - name: ATLAS_CONTROL_PLANE
               value: "https://atlas-controlplane.example.com"
@@ -111,6 +119,8 @@ spec:
               value: "mi-cluster"
             - name: PROVIDER
               value: "onprem"          # onprem | aws | oci
+          volumeMounts:
+            - { name: helm-cache, mountPath: /helm }
           resources:
             requests: { cpu: "25m", memory: "64Mi" }
             # El límite da holgura para RENDERIZAR charts de Helm grandes
@@ -122,3 +132,5 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: helm-cache, emptyDir: {} }
