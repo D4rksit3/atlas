@@ -14,7 +14,9 @@
 set -euo pipefail
 
 DOMAIN="" MODE="" NS="atlas-system"
-IMAGE_PREFIX="${ATLAS_IMAGE_PREFIX:-ghcr.io/atlasctl}" TAG="${ATLAS_TAG:-latest}"
+# Sin ':' a propósito: ATLAS_IMAGE_PREFIX="" (vacío) significa "imágenes locales
+# sin registro" (k3d image import) y debe respetarse, no caer al placeholder.
+IMAGE_PREFIX="${ATLAS_IMAGE_PREFIX-ghcr.io/atlasctl}" TAG="${ATLAS_TAG:-latest}"
 INGRESS_CLASS="" ISSUER="letsencrypt-prod"
 OIDC_ISSUER="" OIDC_CLIENT_ID="" OPERATORS="" WITH_AGENT="yes" APPLY="yes"
 
@@ -88,7 +90,15 @@ sed -E "s#^( *)image: .*atlas-controlplane:.*#\1image: $CP_IMG#" \
 sed -E "s#^( *)image: .*atlas-web:.*#\1image: $WEB_IMG#" "$ROOT/deploy/web.yaml" | emit
 
 if [ "$WITH_AGENT" = "yes" ]; then
-  sed -E "s#^( *)image: .*atlas-agent:.*#\1image: $AGENT_IMG#" "$ROOT/deploy/agent.yaml" | emit
+  # El agente que instalamos AQUÍ monitorea este mismo clúster: habla con el
+  # control plane por su Service interno. (El placeholder example.com del
+  # manifiesto es para agentes de OTROS clústeres, que marcan desde fuera.)
+  sed -E "s#^( *)image: .*atlas-agent:.*#\1image: $AGENT_IMG#" "$ROOT/deploy/agent.yaml" \
+    | awk '
+        fix { sub(/value: .*/, "value: \"http://atlas-controlplane:8080\""); fix=0 }
+        /- name: ATLAS_CONTROL_PLANE/ { fix=1 }
+        { print }' \
+    | emit
 fi
 
 # --- Ingress: TLS+cert-manager en público, HTTP plano en local ------------------

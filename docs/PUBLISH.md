@@ -27,6 +27,35 @@ deja todo coherente con esa elección:
 `--render-only` imprime los manifiestos sin aplicarlos (para revisarlos o versionarlos).
 El resto de este documento explica cada pieza por si prefieres hacerlo a mano.
 
+## Detrás de un proxy externo que ya termina TLS (p. ej. Nginx Proxy Manager)
+
+Si el servidor ya tiene un reverse proxy en 80/443 gestionando otros dominios,
+no compitas por esos puertos: deja que ESE proxy termine el TLS y publique Atlas.
+Receta (verificada con k3d + Nginx Proxy Manager):
+
+```bash
+# 1) Clúster local con el ingress (traefik) expuesto en un puerto interno libre:
+k3d cluster create atlas --agents 1 -p "8880:80@loadbalancer" --wait
+
+# 2) Imágenes locales, sin registro (prefijo VACÍO):
+docker build --target controlplane -t atlas-controlplane:prod .
+docker build --target agent        -t atlas-agent:prod .
+docker build -f web/Dockerfile     -t atlas-web:prod .
+k3d image import -c atlas -m direct atlas-{controlplane,agent,web}:prod
+
+# 3) Instalar en modo local (HTTP interno; el TLS lo pone el proxy externo)
+#    y ajustar CORS al origen público https:
+ATLAS_IMAGE_PREFIX="" ATLAS_TAG=prod \
+  ./scripts/install.sh --domain atlas.seguricloud.com --mode local
+kubectl -n atlas-system set env deploy/atlas-controlplane \
+  ATLAS_CORS_ORIGIN=https://atlas.seguricloud.com
+```
+
+En el proxy externo: un host para `atlas.seguricloud.com` → `IP-privada:8880`
+(HTTP), con su certificado Let's Encrypt y **Force SSL**. Mientras el login OIDC
+no esté configurado, protege el host con una lista de acceso (usuario/contraseña
+del proxy): sin OIDC, quien entra puede OPERAR el clúster.
+
 ## Resumen
 
 ```
