@@ -174,10 +174,12 @@ func (a *Agent) runStream(ctx context.Context, target string, creds credentials.
 			continue
 		}
 		go func() {
-			res := a.execute(streamCtx, act)
+			// OJO: la acción corre con el contexto del AGENTE (ctx), no el del
+			// stream: una instalación de minutos debe sobrevivir a un corte del
+			// stream. Si al terminar el stream ya murió, el resultado se guarda
+			// y lo reporta la siguiente conexión.
+			res := a.execute(ctx, act)
 			if err := a.sendResult(send, res); err != nil {
-				// El stream murió con el resultado en vuelo: guárdalo y la
-				// próxima vida del stream lo reporta.
 				a.stashResult(res)
 			}
 		}()

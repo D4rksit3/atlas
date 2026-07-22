@@ -103,8 +103,12 @@ spec:
             - name: PROVIDER
               value: "onprem"          # onprem | aws | oci
           resources:
-            requests: { cpu: "25m", memory: "32Mi" }
-            limits:   { cpu: "100m", memory: "128Mi" }
+            requests: { cpu: "25m", memory: "64Mi" }
+            # El límite da holgura para RENDERIZAR charts de Helm grandes
+            # (kube-prometheus-stack ~cientos de MiB al plantillar; con 128Mi el
+            # agente muere OOMKilled a mitad de instalación). Si no usas el
+            # catálogo de complementos puedes bajarlo a 128Mi.
+            limits:   { cpu: "500m", memory: "512Mi" }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
