@@ -69,6 +69,19 @@ emit() { [ "$APPLY" = "yes" ] && kubectl apply -f - || cat; }
 echo ">> Instalando Atlas en $CORS_ORIGIN  (modo=$MODE, ingress=$INGRESS_CLASS)"
 [ "$APPLY" = "yes" ] && kubectl create namespace "$NS" >/dev/null 2>&1 || true
 
+# --- Login local: credenciales del admin (Secret atlas-auth) --------------------
+# La GUI SIEMPRE pide login. Si el Secret ya existe (reinstalación) se respeta la
+# contraseña actual; si no, se genera una y se muestra UNA vez al final.
+ADMIN_PASSWORD_NEW=""
+if [ "$APPLY" = "yes" ] && ! kubectl -n "$NS" get secret atlas-auth >/dev/null 2>&1; then
+  ADMIN_PASSWORD_NEW="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | head -c 20)"
+  SESSION_KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  kubectl -n "$NS" create secret generic atlas-auth \
+    --from-literal=adminUser=admin \
+    --from-literal=adminPassword="$ADMIN_PASSWORD_NEW" \
+    --from-literal=sessionKey="$SESSION_KEY" >/dev/null
+fi
+
 # --- Control plane (imagen + CORS + OIDC por env) -------------------------------
 # Reemplaza el marcador ATLAS_ENV_INJECT (la línea name/value de CORS) con el
 # dominio real y, si se pidió, la config OIDC. Indentado a 12 espacios (lista env).
@@ -88,6 +101,9 @@ sed -E "s#^( *)image: .*atlas-controlplane:.*#\1image: $CP_IMG#" \
   | emit
 
 sed -E "s#^( *)image: .*atlas-web:.*#\1image: $WEB_IMG#" "$ROOT/deploy/web.yaml" | emit
+
+# Aislamiento de red del namespace (default-deny + permisos mínimos).
+emit < "$ROOT/deploy/networkpolicy.yaml"
 
 if [ "$WITH_AGENT" = "yes" ]; then
   # El agente que instalamos AQUÍ monitorea este mismo clúster: habla con el
@@ -143,6 +159,15 @@ fi
 
 echo
 echo ">> Listo. Atlas quedará disponible en:  $CORS_ORIGIN"
+if [ -n "$ADMIN_PASSWORD_NEW" ]; then
+  echo
+  echo "   ┌─ Credenciales de la GUI (guárdalas AHORA; no se vuelven a mostrar) ─"
+  echo "   │  usuario:    admin"
+  echo "   │  contraseña: $ADMIN_PASSWORD_NEW"
+  echo "   └─ Para cambiarla: kubectl -n $NS delete secret atlas-auth && ./scripts/install.sh"
+else
+  echo "   (login: se conserva la contraseña ya existente del Secret atlas-auth)"
+fi
 if [ "$MODE" = "public" ]; then
   echo "   Esperando el certificado TLS (cert-manager)…"
   echo "   kubectl -n $NS get certificate atlas-web-tls -w"

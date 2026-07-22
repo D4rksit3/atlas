@@ -50,6 +50,15 @@ spec:
             # pide, la config OIDC. Aplicado a mano, usa "*" (solo desarrollo).
             - name: ATLAS_CORS_ORIGIN
               value: "*" # ATLAS_ENV_INJECT
+            # Login local integrado (usuario/contraseña de Atlas). El instalador
+            # crea el Secret atlas-auth con una contraseña generada y la clave de
+            # sesión. Sin el Secret (optional) la GUI queda SIN login: solo dev.
+            - name: ATLAS_ADMIN_USER
+              valueFrom: { secretKeyRef: { name: atlas-auth, key: adminUser, optional: true } }
+            - name: ATLAS_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: atlas-auth, key: adminPassword, optional: true } }
+            - name: ATLAS_SESSION_KEY
+              valueFrom: { secretKeyRef: { name: atlas-auth, key: sessionKey, optional: true } }
             # Persistencia + multi-réplica: descomenta para usar Postgres. Guarda
             # el DSN en un Secret (no en texto plano). Crea el Secret con:
             #   kubectl -n atlas-system create secret generic atlas-pg \

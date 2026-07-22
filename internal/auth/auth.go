@@ -8,9 +8,11 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 )
@@ -29,12 +31,23 @@ type Config struct {
 	Scopes    []string // scopes que la GUI pedirá (openid, email, profile...)
 }
 
-// Authenticator verifica tokens y decide roles.
+// Authenticator verifica tokens y decide roles. Soporta dos métodos que pueden
+// convivir: el login LOCAL integrado (usuario/contraseña de Atlas) y OIDC
+// (IdP externo). Un token se acepta si lo valida cualquiera de los dos.
 type Authenticator struct {
-	verifier  *oidc.IDTokenVerifier
+	verifier  *oidc.IDTokenVerifier // nil = sin OIDC
 	operators map[string]bool
 	cfg       Config
+	local     *Local // nil = sin login local
 }
+
+// NewLocalOnly crea un autenticador solo con el login local integrado.
+func NewLocalOnly(l *Local) *Authenticator {
+	return &Authenticator{local: l}
+}
+
+// SetLocal añade el login local a un autenticador OIDC (ambos métodos activos).
+func (a *Authenticator) SetLocal(l *Local) { a.local = l }
 
 // New crea el autenticador descubriendo el IdP (lee su configuración OIDC).
 func New(ctx context.Context, cfg Config) (*Authenticator, error) {
@@ -60,16 +73,39 @@ func New(ctx context.Context, cfg Config) (*Authenticator, error) {
 
 // PublicConfig es lo que la GUI necesita para iniciar el login (nada secreto).
 type PublicConfig struct {
-	Enabled  bool     `json:"enabled"`
-	Issuer   string   `json:"issuer"`
-	ClientID string   `json:"clientId"`
-	Scopes   []string `json:"scopes"`
+	Enabled bool `json:"enabled"`
+	// Methods: métodos de login disponibles ("local", "oidc"). La GUI muestra el
+	// formulario, el botón de SSO, o ambos.
+	Methods  []string `json:"methods"`
+	Issuer   string   `json:"issuer,omitempty"`
+	ClientID string   `json:"clientId,omitempty"`
+	Scopes   []string `json:"scopes,omitempty"`
 }
 
 // PublicConfig devuelve la config pública para la GUI.
 func (a *Authenticator) PublicConfig() PublicConfig {
-	return PublicConfig{Enabled: true, Issuer: a.cfg.Issuer, ClientID: a.cfg.ClientID, Scopes: a.cfg.Scopes}
+	cfg := PublicConfig{Enabled: true}
+	if a.local != nil {
+		cfg.Methods = append(cfg.Methods, "local")
+	}
+	if a.verifier != nil {
+		cfg.Methods = append(cfg.Methods, "oidc")
+		cfg.Issuer, cfg.ClientID, cfg.Scopes = a.cfg.Issuer, a.cfg.ClientID, a.cfg.Scopes
+	}
+	return cfg
 }
+
+// Login delega en el login local (si está activo). El segundo valor es false si
+// el login local no está configurado.
+func (a *Authenticator) Login(username, password string) (string, time.Time, error) {
+	if a.local == nil {
+		return "", time.Time{}, errors.New("el login local no está configurado")
+	}
+	return a.local.Login(username, password)
+}
+
+// HasLocal indica si el login local está activo.
+func (a *Authenticator) HasLocal() bool { return a.local != nil }
 
 type claims struct {
 	Email  string   `json:"email"`
@@ -107,17 +143,11 @@ func (a *Authenticator) Require(minRole string, next http.Handler) http.Handler 
 			unauthorized(w, "falta el token de sesión (inicia sesión)")
 			return
 		}
-		idToken, err := a.verifier.Verify(r.Context(), raw)
-		if err != nil {
+		user, ok := a.identify(r.Context(), raw)
+		if !ok {
 			unauthorized(w, "token inválido o expirado")
 			return
 		}
-		var c claims
-		if err := idToken.Claims(&c); err != nil {
-			unauthorized(w, "no se pudieron leer los claims del token")
-			return
-		}
-		user := User{Subject: c.Sub, Email: c.Email, Role: a.roleFor(c)}
 		if minRole == RoleOperator && user.Role != RoleOperator {
 			forbidden(w, "tu usuario no tiene permiso para operar (rol: "+user.Role+")")
 			return
@@ -125,6 +155,28 @@ func (a *Authenticator) Require(minRole string, next http.Handler) http.Handler 
 		ctx := context.WithValue(r.Context(), ctxKey{}, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// identify valida un token contra los métodos activos: primero el login local
+// (barato, HMAC) y después OIDC (firma JWKS del IdP).
+func (a *Authenticator) identify(ctx context.Context, raw string) (User, bool) {
+	if a.local != nil {
+		if u, ok := a.local.Verify(raw); ok {
+			return u, true
+		}
+	}
+	if a.verifier != nil {
+		idToken, err := a.verifier.Verify(ctx, raw)
+		if err != nil {
+			return User{}, false
+		}
+		var c claims
+		if err := idToken.Claims(&c); err != nil {
+			return User{}, false
+		}
+		return User{Subject: c.Sub, Email: c.Email, Role: a.roleFor(c)}, true
+	}
+	return User{}, false
 }
 
 // UserFrom recupera el usuario autenticado del contexto (si lo hay).

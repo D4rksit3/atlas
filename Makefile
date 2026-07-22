@@ -108,6 +108,9 @@ test-upgrade: ## E2E: editar valores de un complemento instalado (helm upgrade)
 test-install: ## E2E: instalador (dominio + local/público) y enrutado por Ingress
 	./scripts/test-install.sh
 
+test-login: ## E2E: login local integrado (API cerrada sin sesión, auditoría, rate limit)
+	./scripts/test-login.sh
+
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1
 

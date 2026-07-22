@@ -225,6 +225,12 @@ func (s *MemStore) Annotations() (map[string]api.Annotation, error) {
 	return out, nil
 }
 
+func (s *MemStore) RecordLogin(user, ip string, ok bool, now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendAudit(loginAuditEntry(user, ip, ok, now))
+}
+
 func (s *MemStore) ListAudit(limit int) ([]api.AuditEntry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

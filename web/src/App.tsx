@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { TopologyMap } from "./TopologyMap";
 import { Onboarding } from "./Onboarding";
 import {
@@ -6,6 +6,7 @@ import {
   handleCallback,
   currentSession,
   login,
+  loginLocal,
   logout,
   type AuthConfig,
   type Session,
@@ -39,19 +40,7 @@ export default function App() {
 
   // Auth activa y sin sesión: pantalla de login.
   if (cfg.enabled && !sess) {
-    return (
-      <div className="app center">
-        <div className="login">
-          <div className="login-mark">◆</div>
-          <div className="login-title">Atlas</div>
-          <div className="login-sub">Consola de arquitectura de Kubernetes</div>
-          <button className="btn primary login-btn" onClick={() => login(cfg)}>
-            Iniciar sesión
-          </button>
-          {err && <div className="login-err">{err}</div>}
-        </div>
-      </div>
-    );
+    return <LoginScreen cfg={cfg} err={err} onSession={setSess} />;
   }
 
   return (
@@ -85,6 +74,79 @@ export default function App() {
         <TopologyMap />
       </main>
       {onboarding && <Onboarding onClose={() => setOnboarding(false)} />}
+    </div>
+  );
+}
+
+/** Pantalla de login: formulario local (usuario/contraseña) y/o botón SSO
+ *  (OIDC), según los métodos que anuncie el control plane. */
+function LoginScreen({
+  cfg,
+  err,
+  onSession,
+}: {
+  cfg: AuthConfig;
+  err: string | null;
+  onSession: (s: Session) => void;
+}) {
+  const [user, setUser] = useState("");
+  const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [localErr, setLocalErr] = useState<string | null>(null);
+  const methods = cfg.methods ?? ["oidc"]; // control planes antiguos: solo OIDC
+  const hasLocal = methods.includes("local");
+  const hasOIDC = methods.includes("oidc");
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setLocalErr(null);
+    try {
+      onSession(await loginLocal(user, pass));
+    } catch (ex) {
+      setLocalErr(ex instanceof Error ? ex.message : String(ex));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="app center">
+      <div className="login">
+        <div className="login-mark">◆</div>
+        <div className="login-title">Atlas</div>
+        <div className="login-sub">Consola de arquitectura de Kubernetes</div>
+        {hasLocal && (
+          <form className="login-form" onSubmit={submit}>
+            <input
+              className="login-input"
+              placeholder="usuario"
+              autoComplete="username"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              autoFocus
+            />
+            <input
+              className="login-input"
+              type="password"
+              placeholder="contraseña"
+              autoComplete="current-password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+            />
+            <button className="btn primary login-btn" type="submit" disabled={busy || !user || !pass}>
+              {busy ? "entrando…" : "Iniciar sesión"}
+            </button>
+          </form>
+        )}
+        {hasLocal && hasOIDC && <div className="login-or">o</div>}
+        {hasOIDC && (
+          <button className="btn login-btn" onClick={() => login(cfg)}>
+            Entrar con SSO
+          </button>
+        )}
+        {(localErr || err) && <div className="login-err">{localErr ?? err}</div>}
+      </div>
     </div>
   );
 }

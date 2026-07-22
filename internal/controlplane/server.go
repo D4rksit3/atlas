@@ -21,6 +21,7 @@ type Server struct {
 	corsOrigin        string
 	auth              *auth.Authenticator // nil = auth deshabilitada (desarrollo)
 	limiter           *ipLimiter          // nil = sin rate limiting
+	loginLimiter      *ipLimiter          // límite estricto de intentos de login por IP
 	hub               *hub                // timbre GUI -> streams gRPC (empuje al instante)
 }
 
@@ -48,7 +49,8 @@ func NewServer(store Store, heartbeatInterval int, corsOrigin string, authn *aut
 		metrics:           NewMetrics(),
 		corsOrigin:        corsOrigin,
 		auth:              authn,
-		limiter:           newIPLimiter(20, 40), // por defecto: 20 req/s por IP
+		limiter:           newIPLimiter(20, 40),  // por defecto: 20 req/s por IP
+		loginLimiter:      newIPLimiter(0.2, 5),  // login: 1 intento/5s por IP (ráfaga 5)
 		hub:               newHub(),
 	}
 }
@@ -66,6 +68,9 @@ func (s *Server) Routes() http.Handler {
 
 	// Config pública para que la GUI sepa si debe pedir login y contra qué IdP.
 	mux.HandleFunc("GET /v1/authconfig", s.handleAuthConfig)
+	// Login local integrado (usuario/contraseña de Atlas). Rate limit propio y
+	// estricto: bcrypt ya frena, pero además cortamos la fuerza bruta por IP.
+	mux.HandleFunc("POST /v1/login", s.handleLogin)
 	// Catálogo de complementos instalables (metadatos).
 	mux.HandleFunc("GET /v1/addons", s.handleAddons)
 
@@ -101,6 +106,41 @@ func (s *Server) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.auth.PublicConfig())
+}
+
+// handleLogin canjea usuario/contraseña del login local por un token de sesión.
+// Cada intento (bueno o malo) queda en la auditoría con la IP de origen.
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.auth == nil || !s.auth.HasLocal() {
+		writeError(w, http.StatusNotFound, "el login local no está configurado")
+		return
+	}
+	ip := clientIP(r)
+	if s.loginLimiter != nil && !s.loginLimiter.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "demasiados intentos de login; espera un momento")
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	token, exp, err := s.auth.Login(req.Username, req.Password)
+	if err != nil {
+		s.store.RecordLogin(req.Username, ip, false, time.Now())
+		log.Printf("login FALLIDO de %q desde %s", req.Username, ip)
+		writeError(w, http.StatusUnauthorized, "usuario o contraseña incorrectos")
+		return
+	}
+	s.store.RecordLogin(req.Username, ip, true, time.Now())
+	log.Printf("login correcto de %q desde %s", req.Username, ip)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token": token,
+		"user":  req.Username,
+		"exp":   exp.Unix(),
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

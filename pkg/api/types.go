@@ -290,6 +290,7 @@ const (
 	AuditRequested = "action.requested" // un usuario encoló una acción
 	AuditExecuted  = "action.executed"  // el agente la ejecutó (ok/error)
 	AuditMapEdited = "map.edited"       // un usuario editó metadatos del mapa
+	AuditLogin     = "auth.login"       // intento de login local (ok o fallido)
 )
 
 // AuditEntry es una línea del registro de auditoría.

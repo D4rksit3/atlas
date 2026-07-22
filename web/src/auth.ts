@@ -4,6 +4,8 @@
 
 export interface AuthConfig {
   enabled: boolean;
+  /** Métodos disponibles: "local" (usuario/contraseña de Atlas) y/o "oidc". */
+  methods?: string[];
   issuer?: string;
   clientId?: string;
   scopes?: string[];
@@ -16,6 +18,7 @@ export interface Session {
 }
 
 const TOKEN_KEY = "atlas.token";
+const SESSION_KEY = "atlas.session"; // sesión del login local (JSON, no es un JWT)
 let session: Session | null = loadSession();
 
 /** Token actual (o null si no hay o expiró). Lo usa el cliente de API. */
@@ -32,6 +35,23 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
   const res = await fetch("/v1/authconfig");
   if (!res.ok) return { enabled: false };
   return (await res.json()) as AuthConfig;
+}
+
+/** Login local integrado: usuario/contraseña contra POST /v1/login. */
+export async function loginLocal(username: string, password: string): Promise<Session> {
+  const res = await fetch("/v1/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `login falló (HTTP ${res.status})`);
+  }
+  const data = (await res.json()) as { token: string; user: string; exp: number };
+  session = { token: data.token, email: data.user, exp: data.exp };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  return session;
 }
 
 /** Inicia el login: PKCE + redirección al IdP. */
@@ -92,6 +112,7 @@ export async function handleCallback(cfg: AuthConfig): Promise<boolean> {
 export function logout(): void {
   session = null;
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 // ---- helpers ----
@@ -111,6 +132,16 @@ function redirectUri(): string {
 }
 
 function loadSession(): Session | null {
+  // Sesión del login local (JSON con token+usuario+caducidad).
+  const s = localStorage.getItem(SESSION_KEY);
+  if (s) {
+    try {
+      return JSON.parse(s) as Session;
+    } catch {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  }
+  // Sesión OIDC (JWT del IdP).
   const t = localStorage.getItem(TOKEN_KEY);
   if (!t) return null;
   try {

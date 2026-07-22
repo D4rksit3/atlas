@@ -55,6 +55,10 @@ type Store interface {
 	// Annotations devuelve todas las anotaciones por clave, para que la GUI las
 	// superponga al mapa.
 	Annotations() (map[string]api.Annotation, error)
+
+	// RecordLogin deja en la auditoría un intento de login local (bueno o malo)
+	// con la IP de origen. Best-effort: nunca bloquea el login.
+	RecordLogin(user, ip string, ok bool, now time.Time)
 }
 
 // annotationSummary describe una edición del mapa para la auditoría.
@@ -159,6 +163,19 @@ func validActionRequest(req api.ActionRequest) error {
 	default:
 		return errors.New("kind no soportado (usa: scale | restart | install)")
 	}
+}
+
+// loginAuditEntry construye la entrada de auditoría de un intento de login.
+func loginAuditEntry(user, ip string, ok bool, now time.Time) api.AuditEntry {
+	e := api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: user, Event: api.AuditLogin,
+		Summary: fmt.Sprintf("inicio de sesión desde %s", ip), Outcome: "ok",
+	}
+	if !ok {
+		e.Summary = fmt.Sprintf("intento de login FALLIDO desde %s", ip)
+		e.Outcome = "error"
+	}
+	return e
 }
 
 // ErrBadAction lo devuelve el store si la petición de acción es inválida.

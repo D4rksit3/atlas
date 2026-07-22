@@ -338,6 +338,12 @@ func (s *PgStore) Annotations() (map[string]api.Annotation, error) {
 	return out, rows.Err()
 }
 
+func (s *PgStore) RecordLogin(user, ip string, ok bool, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	s.insertAudit(ctx, loginAuditEntry(user, ip, ok, now))
+}
+
 func (s *PgStore) ListAudit(limit int) ([]api.AuditEntry, error) {
 	if limit <= 0 {
 		limit = 200
