@@ -34,6 +34,10 @@ atlas/
 
 ## Arranque rápido
 
+> 📖 **¿Primera vez?** El [**Manual completo (instalar desde cero y usar)**](docs/MANUAL.md)
+> te lleva paso a paso: demo con Docker, clúster real con k3d, producción, y
+> cómo usar cada parte de la consola.
+
 ### Opción A — con Docker (no necesitas instalar nada)
 
 ```bash
