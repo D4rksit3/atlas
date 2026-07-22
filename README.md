@@ -166,18 +166,27 @@ En un complemento **ya instalado** con parámetros, el botón *editar* reabre el
 formulario y hace `helm upgrade` conservando el resto de valores (`ReuseValues`).
 Verificado con `make test-upgrade`.
 
-### El panel Servicios: lo instalado, adoptado y accesible
+### El módulo Servicios: instalar, configurar, publicar y abrir
 
-Todo lo que se instala **se adopta en el panel "Servicios"** de la barra del
-mapa: cada complemento con interfaz (Grafana, Argo CD…) aparece con su estado y,
-si aún no tiene URL, un botón **Publicar** — eliges dominio, clase de ingress y
-TLS opcional, y el agente crea el Ingress `atlas-<service>` (acción `expose`,
-auditada; el Service debe existir y el host se valida). En cuanto el agente ve
-el Ingress, la fila muestra la URL y el botón **Abrir ↗** — con la pista de
-credenciales iniciales de cada servicio. Las rutas publicadas **por fuera de
-Atlas** también se adoptan: el agente lee todos los Ingress del clúster y el
-panel las lista igual. Verificado E2E con `make test-services` (publica un
-servicio real en k3d y comprueba que responde por su dominio).
+El apartado **"Servicios"** de la barra del mapa concentra TODO el ciclo de
+vida, por clúster:
+
+- **Instalados**: cada servicio con su estado (réplicas), categoría y acciones.
+  Los que tienen valores editables (p. ej. Prometheus + Grafana) llevan botón
+  **Configurar**: reabre el formulario y aplica los cambios con `helm upgrade`
+  conservando el resto de la configuración.
+- **Publicar / Abrir**: si el servicio tiene interfaz y aún no tiene URL, el
+  botón **Publicar** pide dominio, clase de ingress y TLS opcional, y el agente
+  crea el Ingress `atlas-<service>` (acción `expose`, auditada; el Service debe
+  existir y el host se valida). En cuanto el agente ve el Ingress, aparece la
+  URL y el botón **Abrir ↗**, con la pista de credenciales iniciales.
+- **Catálogo**: lo no instalado, agrupado por categoría, se instala desde el
+  mismo apartado (con su formulario de valores si los tiene).
+- Las rutas publicadas **por fuera de Atlas** también se adoptan: el agente lee
+  todos los Ingress del clúster y el módulo las lista igual.
+
+Verificado E2E con `make test-services` (publica un servicio real en k3d y
+comprueba que responde por su dominio) y en navegador (Playwright).
 
 ### Publicar servicios con TLS (cert-manager)
 
