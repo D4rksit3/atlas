@@ -181,6 +181,25 @@ export async function fetchTopology(): Promise<Topology> {
   return (await res.json()) as Topology;
 }
 
+// ---- Alertas: Atlas vigila y avisa ----
+
+export interface Alert {
+  id: string;
+  kind: string; // cluster-offline | node-notready | pod-crashloop | pod-imagepull
+  severity: "warning" | "critical" | string;
+  cluster: string;
+  resource: string;
+  message: string;
+  since: string;
+}
+
+/** Alertas activas (clúster offline, nodos NotReady, CrashLoops…). */
+export async function fetchAlerts(): Promise<Alert[]> {
+  const res = await fetch("/v1/alerts", { headers: authHeaders() });
+  if (!res.ok) throw new Error(`alerts HTTP ${res.status}`);
+  return (await res.json()) as Alert[];
+}
+
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
 
 export type ActionKind =

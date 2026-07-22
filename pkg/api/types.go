@@ -79,6 +79,10 @@ type PodInfo struct {
 	IP    string `json:"ip,omitempty"`
 	Node  string `json:"node,omitempty"`
 	Phase string `json:"phase,omitempty"` // Running | Pending | ...
+	// Restarts: reinicios acumulados del contenedor que más reinicia.
+	Restarts int `json:"restarts,omitempty"`
+	// Reason: por qué no corre (CrashLoopBackOff, ImagePullBackOff…), si aplica.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Workload es una carga desplegada (Deployment, StatefulSet, ...).
@@ -173,6 +177,27 @@ type Snapshot struct {
 	// Services: los Services del clúster (ClusterIP, puertos, a qué cargas
 	// enrutan), para la vista de red.
 	Services []ServiceInfo `json:"services,omitempty"`
+}
+
+// ---- Alertas: Atlas vigila y avisa ----
+
+// Severidades de una alerta.
+const (
+	SeverityWarning  = "warning"
+	SeverityCritical = "critical"
+)
+
+// Alert es un problema DETECTADO por el control plane al evaluar la topología:
+// clúster caído, nodo NotReady, pods en CrashLoop… Se calculan al vuelo (sin
+// estado) y se notifican por webhook cuando aparecen o se resuelven.
+type Alert struct {
+	ID       string    `json:"id"`       // estable: kind/cluster/recurso (para deduplicar)
+	Kind     string    `json:"kind"`     // cluster-offline | node-notready | pod-crashloop | pod-imagepull
+	Severity string    `json:"severity"` // warning | critical
+	Cluster  string    `json:"cluster"`  // clusterId
+	Resource string    `json:"resource"` // nodo o namespace/pod afectado
+	Message  string    `json:"message"`  // explicación en lenguaje humano
+	Since    time.Time `json:"since"`    // cuándo se detectó (primera vez vista)
 }
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----

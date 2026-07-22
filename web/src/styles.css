@@ -274,6 +274,21 @@ main { flex: 1; min-height: 0; padding: 16px; }
 .ng-head.clickable { cursor: pointer; }
 .ng-head.clickable:hover { background: #223046; }
 
+/* alertas */
+.alerts-btn.warn { color: #F0932B; border-color: #F0932B; }
+.alerts-btn.crit { color: #ff7c7c; border-color: #b23b3b; font-weight: 700; }
+.alerts-panel { width: 400px; }
+.alert-row {
+  display: flex; align-items: flex-start; gap: 9px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.alert-row .audit-dot { margin-top: 5px; }
+.alert-main { flex: 1; min-width: 0; }
+.alert-msg { font-size: 12.5px; line-height: 1.45; }
+.alert-meta { color: var(--faint); font-size: 11px; margin-top: 3px; }
+.ok-empty { color: var(--good); }
+.alerts-hint { margin: 12px 14px; }
+
 /* panel de usuarios */
 .users-panel { width: 360px; }
 .users-row {

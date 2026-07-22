@@ -336,9 +336,19 @@ func fillPodInfo(pods []corev1.Pod, workloads []api.Workload) {
 			continue
 		}
 		key := p.Namespace + "/" + name
-		byOwner[key] = append(byOwner[key], api.PodInfo{
+		info := api.PodInfo{
 			Name: p.Name, IP: p.Status.PodIP, Node: p.Spec.NodeName, Phase: string(p.Status.Phase),
-		})
+		}
+		// Reinicios y razón de espera (CrashLoopBackOff…) del peor contenedor.
+		for _, cs := range p.Status.ContainerStatuses {
+			if int(cs.RestartCount) > info.Restarts {
+				info.Restarts = int(cs.RestartCount)
+			}
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason != "" {
+				info.Reason = cs.State.Waiting.Reason
+			}
+		}
+		byOwner[key] = append(byOwner[key], info)
 	}
 	for i := range workloads {
 		w := &workloads[i]

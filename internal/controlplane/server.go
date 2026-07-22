@@ -23,7 +23,12 @@ type Server struct {
 	limiter           *ipLimiter          // nil = sin rate limiting
 	loginLimiter      *ipLimiter          // límite estricto de intentos de login por IP
 	hub               *hub                // timbre GUI -> streams gRPC (empuje al instante)
+	alerter           *Alerter            // vigilante de alertas (nil = evaluar al vuelo)
 }
+
+// SetAlerter conecta el vigilante de alertas (para que /v1/alerts conserve el
+// 'since' original y el webhook notifique flancos).
+func (s *Server) SetAlerter(a *Alerter) { s.alerter = a }
 
 // SetRateLimit configura el límite por IP (peticiones/segundo y ráfaga). perSec<=0
 // lo desactiva.
@@ -83,6 +88,8 @@ func (s *Server) Routes() http.Handler {
 	// Editar el mapa (metadatos): leer -> viewer; escribir -> operator.
 	mux.Handle("GET /v1/annotations", s.guard(auth.RoleViewer, s.handleListAnnotations))
 	mux.Handle("PUT /v1/annotations/{key...}", s.guard(auth.RoleOperator, s.handleSetAnnotation))
+	// Alertas activas (clúster offline, nodos NotReady, pods en CrashLoop…).
+	mux.Handle("GET /v1/alerts", s.guard(auth.RoleViewer, s.handleAlerts))
 	// Usuarios locales (equipo): gestionarlos exige rol operator.
 	mux.Handle("GET /v1/users", s.guard(auth.RoleOperator, s.handleListUsers))
 	mux.Handle("POST /v1/users", s.guard(auth.RoleOperator, s.handleCreateUser))
@@ -145,6 +152,29 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"user":  req.Username,
 		"exp":   exp.Unix(),
 	})
+}
+
+// handleAlerts devuelve las alertas activas. Con Alerter conectado conserva el
+// 'since' original; sin él, evalúa la topología al vuelo.
+func (s *Server) handleAlerts(w http.ResponseWriter, _ *http.Request) {
+	if s.alerter != nil {
+		alerts := s.alerter.Current()
+		if alerts == nil {
+			alerts = []api.Alert{}
+		}
+		writeJSON(w, http.StatusOK, alerts)
+		return
+	}
+	topo, err := s.store.Topology(time.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "no se pudo evaluar")
+		return
+	}
+	alerts := EvaluateAlerts(topo, time.Now())
+	if alerts == nil {
+		alerts = []api.Alert{}
+	}
+	writeJSON(w, http.StatusOK, alerts)
 }
 
 // ---- usuarios locales (gestión del equipo desde la GUI) ----

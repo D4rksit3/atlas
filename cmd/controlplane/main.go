@@ -40,6 +40,7 @@ func main() {
 	sessionKey := flag.String("session-key", os.Getenv("ATLAS_SESSION_KEY"), "clave HMAC de las sesiones del login local (compártela entre réplicas). Vacío = aleatoria por proceso")
 	sessionTTL := flag.Duration("session-ttl", envDurationOr("ATLAS_SESSION_TTL", 12*time.Hour), "vida de una sesión del login local")
 	rateLimit := flag.Float64("rate-limit", 20, "peticiones/segundo por IP (0 = sin límite)")
+	alertWebhook := flag.String("alert-webhook", os.Getenv("ATLAS_ALERT_WEBHOOK"), "URL a la que POSTear las alertas (JSON) cuando aparecen o se resuelven. Vacío = solo panel")
 	flag.Parse()
 
 	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)
@@ -52,6 +53,14 @@ func main() {
 	}
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
 	srv.SetRateLimit(*rateLimit, int(*rateLimit*2))
+
+	// Vigilante de alertas: evalúa cada 30s y notifica flancos por webhook.
+	alerter := controlplane.NewAlerter(store, *alertWebhook)
+	srv.SetAlerter(alerter)
+	go alerter.Run(context.Background(), 30*time.Second)
+	if *alertWebhook != "" {
+		log.Printf("alertas: webhook configurado (%s)", *alertWebhook)
+	}
 
 	// Un solo puerto para todo: las peticiones gRPC (streams de agentes) van al
 	// canal bidireccional y el resto a la API REST. Así gRPC hereda la misma

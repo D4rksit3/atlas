@@ -17,6 +17,7 @@ import {
   fetchTopology,
   fetchAnnotations,
   fetchAddons,
+  fetchAlerts,
   type Topology,
   type Workload,
   type Annotation,
@@ -34,6 +35,7 @@ import { Inspector } from "./Inspector";
 import { AuditPanel } from "./AuditPanel";
 import { ServicesPanel } from "./ServicesPanel";
 import { UsersPanel } from "./UsersPanel";
+import { AlertsPanel } from "./AlertsPanel";
 import { NodeGroup, type NodeGroupItem } from "./NodeGroup";
 import { NetGroup, netGroupHeight, type NetGroupData, type NetServiceRow, type NetWorkloadRef } from "./NetGroup";
 
@@ -479,6 +481,8 @@ export function TopologyMap() {
   const [showAudit, setShowAudit] = useState(false);
   const [showServices, setShowServices] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alertCount, setAlertCount] = useState<{ total: number; critical: number }>({ total: 0, critical: 0 });
   // La vista elegida se recuerda entre sesiones (lo configurado, configurado queda).
   const [view, setViewRaw] = useState<ViewMode>(() => {
     const v = localStorage.getItem("atlas.view");
@@ -511,10 +515,19 @@ export function TopologyMap() {
         if (alive) setError(String(e));
       }
     };
+    const loadAlerts = async () => {
+      try {
+        const a = await fetchAlerts();
+        if (alive) setAlertCount({ total: a.length, critical: a.filter((x) => x.severity === "critical").length });
+      } catch {
+        /* sin sesión o control plane viejo: sin badge */
+      }
+    };
     load();
     loadAnnos();
+    loadAlerts();
     fetchAddons().then(setAddons).catch(() => {});
-    const id = setInterval(load, POLL_MS);
+    const id = setInterval(() => { load(); loadAlerts(); }, POLL_MS);
     return () => {
       alive = false;
       clearInterval(id);
@@ -582,11 +595,23 @@ export function TopologyMap() {
           </button>
         </div>
         <button
+          className={`bar-btn alerts-btn${showAlerts ? " active" : ""}${alertCount.critical > 0 ? " crit" : alertCount.total > 0 ? " warn" : ""}`}
+          onClick={() => {
+            setShowAlerts((v) => !v);
+            setShowServices(false);
+            setShowAudit(false);
+            setShowUsers(false);
+          }}
+        >
+          Alertas{alertCount.total > 0 ? ` · ${alertCount.total}` : ""}
+        </button>
+        <button
           className={`bar-btn${showServices ? " active" : ""}`}
           onClick={() => {
             setShowServices((v) => !v);
             setShowAudit(false);
             setShowUsers(false);
+            setShowAlerts(false);
           }}
         >
           Servicios
@@ -597,6 +622,7 @@ export function TopologyMap() {
             setShowUsers((v) => !v);
             setShowAudit(false);
             setShowServices(false);
+            setShowAlerts(false);
           }}
         >
           Usuarios
@@ -607,6 +633,7 @@ export function TopologyMap() {
             setShowAudit((v) => !v);
             setShowServices(false);
             setShowUsers(false);
+            setShowAlerts(false);
           }}
         >
           Actividad
@@ -641,6 +668,7 @@ export function TopologyMap() {
         {showAudit && <AuditPanel onClose={() => setShowAudit(false)} />}
         {showServices && <ServicesPanel onClose={() => setShowServices(false)} />}
         {showUsers && <UsersPanel onClose={() => setShowUsers(false)} />}
+        {showAlerts && <AlertsPanel onClose={() => setShowAlerts(false)} />}
       </div>
     </div>
   );
