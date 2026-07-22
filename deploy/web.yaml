@@ -22,7 +22,7 @@ data:
       # (script-src 'self'); React Flow inyecta <style> en runtime (por eso
       # style-src 'unsafe-inline'). connect-src: solo el propio origen — si usas
       # OIDC, el instalador añade el origen del IdP en esta línea (marcador).
-      add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'" always; # ATLAS_CSP
+      add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src https: http:; form-action 'self'" always; # ATLAS_CSP
       add_header X-Content-Type-Options "nosniff" always;
 
       # API del control plane (Service en el mismo namespace).

@@ -53,3 +53,32 @@ func TestAddonCatalogConsistente(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeAddonValuesNoMuta verifica que aplicar valores de usuario NO muta los
+// values base del catálogo compartido (mergeAddonValues debe copiar en profundo):
+// si mutara, la contraseña de una instalación quedaría pegada en el mapa global.
+func TestMergeAddonValuesNoMuta(t *testing.T) {
+	spec := addons["kube-prometheus-stack"]
+	if spec.helm == nil || spec.helm.values == nil {
+		t.Fatal("kube-prometheus-stack debería tener values base (allow_embedding)")
+	}
+	out := mergeAddonValues("kube-prometheus-stack", spec.helm.values,
+		map[string]string{"grafanaPassword": "super-secreta"})
+
+	// El resultado lleva el valor del usuario en el path vetado…
+	g, _ := out["grafana"].(map[string]interface{})
+	if g == nil || g["adminPassword"] != "super-secreta" {
+		t.Fatalf("el valor del usuario no se aplicó: %#v", out)
+	}
+	// …y conserva el base value de embedding…
+	ini, _ := g["grafana.ini"].(map[string]interface{})
+	sec, _ := ini["security"].(map[string]interface{})
+	if sec == nil || sec["allow_embedding"] != true {
+		t.Fatalf("se perdió el base value allow_embedding: %#v", out)
+	}
+	// …pero el mapa BASE del catálogo queda intacto (sin la contraseña).
+	baseG, _ := spec.helm.values["grafana"].(map[string]interface{})
+	if _, leaked := baseG["adminPassword"]; leaked {
+		t.Fatal("mergeAddonValues mutó los values base compartidos (fuga de contraseña)")
+	}
+}

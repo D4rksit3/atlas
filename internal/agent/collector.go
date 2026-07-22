@@ -93,8 +93,14 @@ func (c *SampleCollector) Collect() (api.Snapshot, error) {
 		{From: "web", To: "api"},
 		{From: "api", To: "postgres"},
 	}
+	// Una ruta publicada de ejemplo, para que el módulo Servicios y la vista
+	// Administrar tengan algo que enseñar también con datos ficticios.
+	ingresses := []api.IngressInfo{
+		{Name: "atlas-web", Namespace: "default", Class: "nginx",
+			Host: "web.ejemplo.local", Path: "/", Service: "web", Port: 80},
+	}
 
-	return api.Snapshot{Nodes: nodes, Workloads: workloads, Links: links}, nil
+	return api.Snapshot{Nodes: nodes, Workloads: workloads, Links: links, Ingresses: ingresses}, nil
 }
 
 func workerName(p api.Provider, i int) string {

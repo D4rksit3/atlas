@@ -109,6 +109,16 @@ var addons = map[string]addonSpec{
 			repo:    "https://prometheus-community.github.io/helm-charts",
 			chart:   "kube-prometheus-stack",
 			version: "62.7.0", release: "kube-prometheus-stack",
+			values: map[string]interface{}{
+				// Permite EMBEBER Grafana dentro de la GUI de Atlas (vista
+				// "Administrar"): sin esto, Grafana manda X-Frame-Options: deny
+				// y el navegador bloquea el iframe.
+				"grafana": map[string]interface{}{
+					"grafana.ini": map[string]interface{}{
+						"security": map[string]interface{}{"allow_embedding": true},
+					},
+				},
+			},
 		},
 	},
 }
@@ -269,10 +279,10 @@ func (a *KubeActuator) installAddon(ctx context.Context, name string, userValues
 // usuario SOLO en los paths declarados en el catálogo (api.AddonParams). Ignora
 // cualquier clave que no sea un parámetro vetado del complemento.
 func mergeAddonValues(addon string, base map[string]interface{}, user map[string]string) map[string]interface{} {
-	out := map[string]interface{}{}
-	for k, v := range base {
-		out[k] = v
-	}
+	// Copia PROFUNDA: los values base viven en el catálogo compartido del
+	// paquete; setNestedValue no debe mutarlos (p. ej. escribir la contraseña
+	// del usuario dentro del mapa base "grafana" de todas las instalaciones).
+	out := deepCopyValues(base)
 	for _, p := range api.AddonParams(addon) {
 		raw, ok := user[p.Key]
 		if !ok || raw == "" {
@@ -284,6 +294,20 @@ func mergeAddonValues(addon string, base map[string]interface{}, user map[string
 }
 
 // setNestedValue fija value en out siguiendo la ruta (creando mapas intermedios).
+// deepCopyValues clona un árbol de values (mapas anidados; las hojas se copian
+// por valor de referencia, no se mutan).
+func deepCopyValues(m map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if mm, ok := v.(map[string]interface{}); ok {
+			out[k] = deepCopyValues(mm)
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func setNestedValue(out map[string]interface{}, path []string, value interface{}) {
 	for i := 0; i < len(path)-1; i++ {
 		next, ok := out[path[i]].(map[string]interface{})

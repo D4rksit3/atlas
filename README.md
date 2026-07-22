@@ -166,27 +166,30 @@ En un complemento **ya instalado** con parámetros, el botón *editar* reabre el
 formulario y hace `helm upgrade` conservando el resto de valores (`ReuseValues`).
 Verificado con `make test-upgrade`.
 
-### El módulo Servicios: instalar, configurar, publicar y abrir
+### El módulo Servicios: instalar y ADMINISTRAR sin salir de Atlas
 
 El apartado **"Servicios"** de la barra del mapa concentra TODO el ciclo de
 vida, por clúster:
 
-- **Instalados**: cada servicio con su estado (réplicas), categoría y acciones.
-  Los que tienen valores editables (p. ej. Prometheus + Grafana) llevan botón
-  **Configurar**: reabre el formulario y aplica los cambios con `helm upgrade`
-  conservando el resto de la configuración.
-- **Publicar / Abrir**: si el servicio tiene interfaz y aún no tiene URL, el
-  botón **Publicar** pide dominio, clase de ingress y TLS opcional, y el agente
-  crea el Ingress `atlas-<service>` (acción `expose`, auditada; el Service debe
-  existir y el host se valida). En cuanto el agente ve el Ingress, aparece la
-  URL y el botón **Abrir ↗**, con la pista de credenciales iniciales.
+- **Administrar**: cada servicio instalado se abre en una vista completa DENTRO
+  de Atlas — su interfaz (Grafana, Argo CD…) **embebida** en el centro, y a la
+  izquierda sus **cargas** (escalar −/+ y reiniciar ⟳ por carga), la
+  **configuración** (valores de Helm → `helm upgrade` conservando el resto), la
+  **publicación** (dominio, clase de ingress, TLS) y las credenciales iniciales.
+  Nada de saltar a otra página: se usa y se administra ahí mismo.
 - **Catálogo**: lo no instalado, agrupado por categoría, se instala desde el
-  mismo apartado (con su formulario de valores si los tiene).
-- Las rutas publicadas **por fuera de Atlas** también se adoptan: el agente lee
-  todos los Ingress del clúster y el módulo las lista igual.
+  mismo apartado (con su formulario de valores si los tiene) y con progreso en
+  vivo.
+- Las rutas publicadas **por fuera de Atlas** también se adoptan y administran.
+
+Notas de embebido: Grafana se instala con `allow_embedding` ya activado (base
+value del catálogo); un servicio publicado en `http` no puede embeberse si
+Atlas va por `https` (contenido mixto) — la vista lo explica y ofrece el enlace;
+y si un servicio prohíbe iframes, queda el aviso con **abrir en pestaña ↗**.
 
 Verificado E2E con `make test-services` (publica un servicio real en k3d y
-comprueba que responde por su dominio) y en navegador (Playwright).
+comprueba que responde por su dominio) y en navegador (Playwright: la vista
+Administrar embebe contenido de otro origen y opera las cargas).
 
 ### Publicar servicios con TLS (cert-manager)
 

@@ -31,7 +31,7 @@ entornos que administrar.
 | Timeouts del servidor | ✅ read/write | — |
 | Rate limiting | ✅ **por IP** (`--rate-limit`, 20/s por defecto) | ajustar tras un proxy de confianza |
 | Cabeceras de seguridad | ✅ nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS (bajo TLS) | — |
-| CSP de la GUI | ✅ `script-src 'self'` (sin inline), `frame-ancestors 'none'`, `connect-src` acotado (el instalador añade el IdP si hay OIDC) | quitar `style-src 'unsafe-inline'` (lo exige React Flow) |
+| CSP de la GUI | ✅ `script-src 'self'` (sin inline), `frame-ancestors 'none'`, `connect-src` acotado (el instalador añade el IdP si hay OIDC); `frame-src https: http:` para EMBEBER los servicios administrados (vista Administrar) | quitar `style-src 'unsafe-inline'` (lo exige React Flow); acotar `frame-src` a los hosts publicados |
 | Contenedores | ✅ distroless, no-root | escaneo de imágenes en CI (Trivy) |
 | Secretos | ❌ no hay gestión | integrar con Secret manager / SOPS |
 
