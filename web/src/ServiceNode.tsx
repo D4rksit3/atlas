@@ -2,7 +2,7 @@
 // y estado, en el mismo estilo que el diagrama de arquitectura.
 import { Handle, Position } from "reactflow";
 import { Icon, type IconKey } from "./icons";
-import type { App, AppResource } from "./api";
+import type { App, AppResource, PodInfo } from "./api";
 
 // WorkloadOp: datos que necesita el Inspector para operar una carga.
 export interface WorkloadOp {
@@ -23,6 +23,7 @@ export interface Selection {
   op?: WorkloadOp; // presente solo si es operable (carga)
   cluster?: ClusterOps; // presente solo si es un clúster (complementos)
   app?: AppOps; // presente solo si es un proyecto GitOps
+  pods?: PodInfo[]; // pods de la carga con sus IPs (para el Inspector)
 }
 
 // AppOps: acciones sobre un proyecto GitOps (sincronizar / revertir) + su árbol.

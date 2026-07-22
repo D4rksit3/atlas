@@ -115,6 +115,33 @@ Cada acción deja **rastro de quién la solicitó y su resultado**. El panel
 (`solicitó`/`ejecutó`, con `ok`/`error`), atribuidas al usuario OIDC. Verificado
 con `make test-audit`.
 
+## La vista "Red": cómo se comunican los pods, sin maraña
+
+El tercer modo del mapa (**Flujo | Por nodo | Red**) responde a "¿quién habla
+con quién y por dónde?" de forma ORDENADA: una caja por **namespace** y, dentro,
+la cadena completa de comunicación en tres líneas legibles:
+
+```
+┌ default ──────────────────────────────┐
+│ 🌐 web.ejemplo.local                   │  ← host publicado (Ingress)
+│ ⇄ web                 10.43.10.20:80  │  ← Service (ClusterIP:puerto)
+│    ▢ web    10.42.0.11 · 10.42.1.12…  │  ← cargas con las IPs de sus pods
+└────────────────────────────────────────┘
+```
+
+- El agente reporta ahora los **Services** (ClusterIP, puertos y a qué cargas
+  enrutan — selector contra labels de pods) y los **pods con su IP, nodo y
+  fase** (acotados por carga para no inflar el snapshot).
+- Clicar cualquier carga abre el Inspector con su tabla **Pods e IPs**
+  (nombre, IP, nodo, estado) — disponible también en las otras vistas.
+- Las cargas sin Service delante se agrupan aparte ("sin service"): se ve al
+  instante qué no está expuesto internamente.
+- Los namespaces de sistema se omiten en esta vista para que no estorben.
+
+Los enlaces de tráfico REAL observado siguen siendo cosa de Hubble/Cilium
+(`--links=hubble`, vista Flujo); la vista Red enseña el cableado DECLARADO
+(Ingress → Service → pods), que existe en cualquier clúster sin instalar nada.
+
 ## Vistas del mapa: flujo y por nodo
 
 El mapa tiene dos vistas (toggle en la barra):

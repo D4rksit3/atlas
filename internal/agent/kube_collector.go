@@ -136,11 +136,18 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 		})
 	}
 
-	// Ubicación de pods: en qué nodos corre cada carga y cuántos pods en cada uno.
-	// Es best-effort: si falla (p. ej. sin permiso de pods), seguimos sin ella.
-	if err := c.fillPlacement(ctx, snap.Workloads); err != nil {
+	// Ubicación de pods + IPs: una sola lista de pods alimenta el reparto por
+	// nodo, las IPs de cada carga y el mapeo Service->cargas de más abajo.
+	pods, err := c.client.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
 		return snap, fmt.Errorf("listando pods: %w", err)
 	}
+	fillPlacement(pods.Items, snap.Workloads)
+	fillPodInfo(pods.Items, snap.Workloads)
+
+	// Services: el "cableado" del clúster (ClusterIP, puertos, a qué cargas
+	// enrutan). Best-effort: sin permiso, seguimos sin ellos.
+	snap.Services = c.collectServices(ctx, pods.Items)
 
 	// Proyectos GitOps (Applications de ArgoCD), si ArgoCD está instalado.
 	// Best-effort: si el CRD no existe o no hay permiso, seguimos sin ellos.
@@ -268,19 +275,14 @@ func appResources(obj map[string]interface{}) []api.AppResource {
 	return out
 }
 
-// fillPlacement lista los pods y rellena Workload.Placement con el reparto por
-// nodo. Un pod se atribuye a su carga dueña vía ownerReferences (ReplicaSet ->
-// Deployment) y al nodo donde está agendado (spec.nodeName).
-func (c *KubeCollector) fillPlacement(ctx context.Context, workloads []api.Workload) error {
-	pods, err := c.client.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return err
-	}
-
+// fillPlacement rellena Workload.Placement con el reparto por nodo. Un pod se
+// atribuye a su carga dueña vía ownerReferences (ReplicaSet -> Deployment) y al
+// nodo donde está agendado (spec.nodeName).
+func fillPlacement(pods []corev1.Pod, workloads []api.Workload) {
 	// clave "namespace/carga" -> (nodo -> nº de pods).
 	spread := make(map[string]map[string]int)
-	for i := range pods.Items {
-		p := &pods.Items[i]
+	for i := range pods {
+		p := &pods[i]
 		node := p.Spec.NodeName
 		if node == "" {
 			continue // aún no agendado
@@ -315,7 +317,93 @@ func (c *KubeCollector) fillPlacement(ctx context.Context, workloads []api.Workl
 		})
 		w.Placement = placement
 	}
-	return nil
+}
+
+// fillPodInfo rellena Workload.Pods con nombre, IP, nodo y fase de cada pod
+// (acotado a MaxPodsPerWorkload por carga para no inflar el snapshot).
+func fillPodInfo(pods []corev1.Pod, workloads []api.Workload) {
+	byOwner := make(map[string][]api.PodInfo)
+	for i := range pods {
+		p := &pods[i]
+		name := ownerWorkload(p)
+		if name == "" {
+			continue
+		}
+		key := p.Namespace + "/" + name
+		byOwner[key] = append(byOwner[key], api.PodInfo{
+			Name: p.Name, IP: p.Status.PodIP, Node: p.Spec.NodeName, Phase: string(p.Status.Phase),
+		})
+	}
+	for i := range workloads {
+		w := &workloads[i]
+		list := byOwner[w.Namespace+"/"+w.Name]
+		if len(list) == 0 {
+			continue
+		}
+		sort.Slice(list, func(a, b int) bool { return list[a].Name < list[b].Name })
+		if len(list) > api.MaxPodsPerWorkload {
+			list = list[:api.MaxPodsPerWorkload]
+		}
+		w.Pods = list
+	}
+}
+
+// collectServices lista los Services y calcula a qué cargas enruta cada uno
+// (selector del Service contra las labels de los pods). Devuelve nil si no se
+// puede (sin permiso): no es un fallo.
+func (c *KubeCollector) collectServices(ctx context.Context, pods []corev1.Pod) []api.ServiceInfo {
+	list, err := c.client.CoreV1().Services(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	out := make([]api.ServiceInfo, 0, len(list.Items))
+	for i := range list.Items {
+		s := &list.Items[i]
+		info := api.ServiceInfo{
+			Name: s.Name, Namespace: s.Namespace, Type: string(s.Spec.Type),
+			ClusterIP: s.Spec.ClusterIP,
+		}
+		if s.Spec.ClusterIP == corev1.ClusterIPNone {
+			info.Type, info.ClusterIP = "Headless", ""
+		}
+		for _, p := range s.Spec.Ports {
+			info.Ports = append(info.Ports, api.ServicePort{Port: int(p.Port), Protocol: string(p.Protocol)})
+		}
+		// ¿A qué cargas enruta? Pods del mismo namespace cuyas labels casan con
+		// el selector, atribuidos a su carga dueña.
+		if len(s.Spec.Selector) > 0 {
+			seen := map[string]bool{}
+			for j := range pods {
+				p := &pods[j]
+				if p.Namespace != s.Namespace || !labelsMatch(s.Spec.Selector, p.Labels) {
+					continue
+				}
+				if w := ownerWorkload(p); w != "" && !seen[w] {
+					seen[w] = true
+					info.Workloads = append(info.Workloads, w)
+				}
+			}
+			sort.Strings(info.Workloads)
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Namespace != out[b].Namespace {
+			return out[a].Namespace < out[b].Namespace
+		}
+		return out[a].Name < out[b].Name
+	})
+	return out
+}
+
+// labelsMatch dice si las labels del pod satisfacen TODO el selector.
+func labelsMatch(selector, labels map[string]string) bool {
+	for k, v := range selector {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // ownerWorkload devuelve el nombre de la carga dueña de un pod. Para pods de un

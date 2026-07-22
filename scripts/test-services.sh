@@ -107,6 +107,18 @@ for i in $(seq 1 30); do
 done
 check "la topología incluye el ingress publicado" yes "$ok"
 
+echo "== el snapshot trae la RED: services con ClusterIP y pods con IP =="
+topo=$(api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/topology")
+echo "$topo" | grep -q '"services":\[' && check "snapshot incluye services" si si \
+  || check "snapshot incluye services" si no
+echo "$topo" | grep -o '"name":"demo-web","namespace":"default","type":"ClusterIP","clusterIP":"[0-9.]*"' | head -1 \
+  | grep -q clusterIP && check "service demo-web con ClusterIP real" si si \
+  || check "service demo-web con ClusterIP real" si no
+echo "$topo" | grep -q '"workloads":\["demo-web"\]' && check "service demo-web enruta a su carga" si si \
+  || check "service demo-web enruta a su carga" si no
+echo "$topo" | grep -qE '"pods":\[\{"name":"demo-web-[^"]*","ip":"[0-9.]+"' \
+  && check "pods de demo-web con su IP" si si || check "pods de demo-web con su IP" si no
+
 echo "== la publicación queda auditada =="
 api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/audit" | grep -q "publicar el servicio default/demo-web" \
   && check "auditoría de la publicación" si si || check "auditoría de la publicación" si no

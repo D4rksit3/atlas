@@ -85,9 +85,26 @@ func (c *SampleCollector) Collect() (api.Snapshot, error) {
 	}
 
 	workloads := []api.Workload{
-		{Name: "web", Namespace: "default", Kind: "Deployment", Replicas: 3},
-		{Name: "api", Namespace: "default", Kind: "Deployment", Replicas: 2},
-		{Name: "postgres", Namespace: "data", Kind: "StatefulSet", Replicas: 1},
+		{Name: "web", Namespace: "default", Kind: "Deployment", Replicas: 3, Pods: []api.PodInfo{
+			{Name: "web-7f9c-a1", IP: "10.42.0.11", Node: "cp-0", Phase: "Running"},
+			{Name: "web-7f9c-b2", IP: "10.42.1.12", Node: workerName(c.provider, 0), Phase: "Running"},
+			{Name: "web-7f9c-c3", IP: "10.42.1.13", Node: workerName(c.provider, 0), Phase: "Running"},
+		}},
+		{Name: "api", Namespace: "default", Kind: "Deployment", Replicas: 2, Pods: []api.PodInfo{
+			{Name: "api-55d8-x9", IP: "10.42.0.21", Node: "cp-0", Phase: "Running"},
+			{Name: "api-55d8-y7", IP: "10.42.1.22", Node: workerName(c.provider, 0), Phase: "Running"},
+		}},
+		{Name: "postgres", Namespace: "data", Kind: "StatefulSet", Replicas: 1, Pods: []api.PodInfo{
+			{Name: "postgres-0", IP: "10.42.1.31", Node: workerName(c.provider, 0), Phase: "Running"},
+		}},
+	}
+	services := []api.ServiceInfo{
+		{Name: "web", Namespace: "default", Type: "ClusterIP", ClusterIP: "10.43.10.20",
+			Ports: []api.ServicePort{{Port: 80, Protocol: "TCP"}}, Workloads: []string{"web"}},
+		{Name: "api", Namespace: "default", Type: "ClusterIP", ClusterIP: "10.43.10.30",
+			Ports: []api.ServicePort{{Port: 8080, Protocol: "TCP"}}, Workloads: []string{"api"}},
+		{Name: "postgres", Namespace: "data", Type: "Headless",
+			Ports: []api.ServicePort{{Port: 5432, Protocol: "TCP"}}, Workloads: []string{"postgres"}},
 	}
 	links := []api.Link{
 		{From: "web", To: "api"},
@@ -100,7 +117,10 @@ func (c *SampleCollector) Collect() (api.Snapshot, error) {
 			Host: "web.ejemplo.local", Path: "/", Service: "web", Port: 80},
 	}
 
-	return api.Snapshot{Nodes: nodes, Workloads: workloads, Links: links, Ingresses: ingresses}, nil
+	return api.Snapshot{
+		Nodes: nodes, Workloads: workloads, Links: links,
+		Ingresses: ingresses, Services: services,
+	}, nil
 }
 
 func workerName(p api.Provider, i int) string {

@@ -23,12 +23,36 @@ export interface Placement {
   pods: number;
 }
 
+// PodInfo: un pod concreto con su IP real, nodo y fase.
+export interface PodInfo {
+  name: string;
+  ip?: string;
+  node?: string;
+  phase?: string; // Running | Pending | ...
+}
+
 export interface Workload {
   name: string;
   namespace: string;
   kind: string;
   replicas: number;
   placement?: Placement[] | null;
+  pods?: PodInfo[] | null;
+}
+
+// ServiceInfo: un Service del clúster (el "cable" entre pods) con su ClusterIP,
+// puertos y las cargas a las que enruta.
+export interface ServicePort {
+  port: number;
+  protocol?: string;
+}
+export interface ServiceInfo {
+  name: string;
+  namespace: string;
+  type: string; // ClusterIP | NodePort | LoadBalancer | Headless
+  clusterIP?: string;
+  ports?: ServicePort[] | null;
+  workloads?: string[] | null;
 }
 
 export interface Link {
@@ -123,6 +147,7 @@ export interface Snapshot {
   links: Link[] | null;
   apps?: App[] | null;
   ingresses?: IngressInfo[] | null;
+  services?: ServiceInfo[] | null;
 }
 
 export interface ClusterView {

@@ -61,6 +61,15 @@ type Placement struct {
 	Pods int    `json:"pods"`
 }
 
+// PodInfo es un pod concreto de una carga: su IP real, dónde corre y su fase.
+// Con esto la GUI enseña "quién es quién" en la red del clúster.
+type PodInfo struct {
+	Name  string `json:"name"`
+	IP    string `json:"ip,omitempty"`
+	Node  string `json:"node,omitempty"`
+	Phase string `json:"phase,omitempty"` // Running | Pending | ...
+}
+
 // Workload es una carga desplegada (Deployment, StatefulSet, ...).
 type Workload struct {
 	Name      string `json:"name"`
@@ -70,6 +79,30 @@ type Workload struct {
 	// Placement: en qué nodos corren sus pods y cuántos en cada uno. Vacío si el
 	// colector no pudo leer pods (p. ej. sin permiso) o si la carga no tiene pods.
 	Placement []Placement `json:"placement,omitempty"`
+	// Pods: los pods de la carga con su IP (acotado a MaxPodsPerWorkload para no
+	// inflar el snapshot en cargas grandes).
+	Pods []PodInfo `json:"pods,omitempty"`
+}
+
+// MaxPodsPerWorkload acota cuántos pods (con IP) viajan por carga en el snapshot.
+const MaxPodsPerWorkload = 15
+
+// ServicePort es un puerto expuesto por un Service.
+type ServicePort struct {
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol,omitempty"` // TCP | UDP
+}
+
+// ServiceInfo es un Service del clúster: el "cable" por el que se comunican los
+// pods. La GUI lo usa para dibujar la red ordenada: Ingress -> Service -> cargas.
+type ServiceInfo struct {
+	Name      string        `json:"name"`
+	Namespace string        `json:"namespace"`
+	Type      string        `json:"type"`                // ClusterIP | NodePort | LoadBalancer | Headless
+	ClusterIP string        `json:"clusterIP,omitempty"` // vacío si headless
+	Ports     []ServicePort `json:"ports,omitempty"`
+	// Workloads: cargas cuyos pods selecciona este Service (a quién enruta).
+	Workloads []string `json:"workloads,omitempty"`
 }
 
 // Link es una conexión observada entre dos cargas (fuente de datos: Hubble).
@@ -124,6 +157,9 @@ type Snapshot struct {
 	Apps []App `json:"apps,omitempty"`
 	// Ingresses: rutas publicadas (host -> service), para el panel de servicios.
 	Ingresses []IngressInfo `json:"ingresses,omitempty"`
+	// Services: los Services del clúster (ClusterIP, puertos, a qué cargas
+	// enrutan), para la vista de red.
+	Services []ServiceInfo `json:"services,omitempty"`
 }
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----

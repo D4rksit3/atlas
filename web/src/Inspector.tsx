@@ -507,6 +507,27 @@ export function Inspector({
           </>
         )}
 
+        {/* ---- pods e IPs de la carga ---- */}
+        {(sel.pods?.length ?? 0) > 0 && (
+          <>
+            <div className="insp-section">Pods e IPs ({sel.pods!.length})</div>
+            <div className="pods-table">
+              {sel.pods!.map((p) => (
+                <div className="pods-row" key={p.name}>
+                  <span
+                    className="pods-dot"
+                    style={{ background: p.phase === "Running" ? "var(--good)" : "#F0932B" }}
+                    title={p.phase || "?"}
+                  />
+                  <span className="pods-name" title={p.name}>{p.name}</span>
+                  <span className="pods-ip mono">{p.ip || "—"}</span>
+                  <span className="pods-node" title="nodo">{p.node || ""}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* ---- operar carga ---- */}
         {op && (
           <>

@@ -34,10 +34,11 @@ import { Inspector } from "./Inspector";
 import { AuditPanel } from "./AuditPanel";
 import { ServicesPanel } from "./ServicesPanel";
 import { NodeGroup, type NodeGroupItem } from "./NodeGroup";
+import { NetGroup, netGroupHeight, type NetGroupData, type NetServiceRow, type NetWorkloadRef } from "./NetGroup";
 
-const nodeTypes = { service: ServiceNode, nodegroup: NodeGroup };
+const nodeTypes = { service: ServiceNode, nodegroup: NodeGroup, netgroup: NetGroup };
 const POLL_MS = 5000;
-type ViewMode = "flow" | "node";
+type ViewMode = "flow" | "node" | "red";
 
 // Namespaces del sistema: se muestran atenuados para no tapar tus apps.
 const SYSTEM_NS = new Set([
@@ -175,6 +176,74 @@ function build(
     // ...pero para DISPONER, el clúster va DESPUÉS del control plane.
     layoutEdges.push({ source: "control-plane", target: clusterId });
 
+    // ---- Vista "Red": la comunicación interna, ordenada por namespace ----
+    // Cada caja es un namespace con la cadena legible: host publicado ->
+    // Service (ClusterIP:puerto) -> cargas (con las IPs de sus pods). Nada de
+    // marañas: los namespaces de sistema se omiten para que se vea claro.
+    if (opts.view === "red") {
+      const services = c.snapshot?.services ?? [];
+      const ingresses = c.snapshot?.ingresses ?? [];
+      const namespaces = Array.from(
+        new Set([...workloads.map((w) => w.namespace), ...services.map((s) => s.namespace)]),
+      )
+        .filter((ns) => !SYSTEM_NS.has(ns))
+        .sort();
+
+      const wlRef = (w: Workload): NetWorkloadRef => {
+        const wKey = `${c.clusterId}/${w.namespace}/${w.name}`;
+        const wAnno = annos[wKey] ?? {};
+        const op = {
+          clusterId: c.clusterId, namespace: w.namespace, workload: w.name,
+          workloadKind: w.kind, replicas: w.replicas, online: c.online,
+        };
+        const ips = (w.pods ?? []).map((p) => p.ip).filter((ip): ip is string => !!ip);
+        return {
+          key: wKey,
+          label: wAnno.displayName || w.name,
+          kind: w.kind,
+          replicas: w.replicas,
+          ips: ips.slice(0, 3).concat(ips.length > 3 ? [`+${ips.length - 3}`] : []),
+          sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op, pods: w.pods ?? [] },
+        };
+      };
+
+      namespaces.forEach((ns, j) => {
+        const nsWorkloads = workloads.filter((w) => w.namespace === ns);
+        const nsServices = services.filter((s) => s.namespace === ns);
+        const covered = new Set<string>();
+        const rows: NetServiceRow[] = nsServices.map((s) => {
+          const port = s.ports?.[0]?.port;
+          const addr =
+            s.type === "Headless" ? "headless"
+            : s.clusterIP ? `${s.clusterIP}${port ? `:${port}` : ""}`
+            : "sin ClusterIP";
+          const wls = (s.workloads ?? [])
+            .map((name) => nsWorkloads.find((w) => w.name === name))
+            .filter((w): w is Workload => !!w);
+          wls.forEach((w) => covered.add(w.name));
+          return {
+            key: `${ns}/${s.name}`,
+            name: s.name,
+            addr,
+            hosts: ingresses.filter((i) => i.namespace === ns && i.service === s.name).map((i) => i.host),
+            workloads: wls.map(wlRef),
+          };
+        });
+        const orphans = nsWorkloads.filter((w) => !covered.has(w.name)).map(wlRef);
+
+        const nid = `${clusterId}-net-${j}`;
+        const data: NetGroupData = { namespace: ns, muted: !c.online, services: rows, orphans, onSelect: opts.onSelect };
+        nodes.push({ id: nid, type: "netgroup", position: { x: 0, y: 0 }, data });
+        sizes.set(nid, { width: 306, height: netGroupHeight(data) });
+        edges.push({
+          id: `e-${nid}`, source: clusterId, target: nid,
+          style: { stroke: color, opacity: 0.4 },
+        });
+        layoutEdges.push({ source: clusterId, target: nid });
+      });
+      return; // fin de este clúster en vista red
+    }
+
     // ---- Vista "por nodo": cada nodo es una caja con sus cargas dentro ----
     if (opts.view === "node") {
       allNodes.forEach((n, j) => {
@@ -197,7 +266,7 @@ function build(
             icon: workloadIcon(w),
             pods: pl.pods,
             muted: SYSTEM_NS.has(w.namespace),
-            sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op },
+            sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op, pods: w.pods ?? [] },
           });
         });
         items.sort((a, b) => Number(a.muted) - Number(b.muted)); // apps primero
@@ -274,6 +343,7 @@ function build(
           kind: w.kind,
           subtitle: w.namespace,
           op,
+          pods: w.pods ?? [],
         },
       });
       // Pertenencia al clúster (arista muy tenue) + jerarquía de layout.
@@ -457,6 +527,12 @@ export function TopologyMap() {
             onClick={() => setView("node")}
           >
             Por nodo
+          </button>
+          <button
+            className={view === "red" ? "on" : ""}
+            onClick={() => setView("red")}
+          >
+            Red
           </button>
         </div>
         <button
