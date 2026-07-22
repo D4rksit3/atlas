@@ -55,7 +55,7 @@ test-rotation: ## E2E: rotación de certs (hojas cortas por CLI + hot-reload sin
 test-revocation: ## E2E: revocación inmediata de certs (CRL firmada por la CA + corte en caliente)
 	./scripts/test-revocation.sh
 
-test-ingress: ## E2E: publicar servicios — instalar ingress-nginx + cert-manager desde la GUI (k3d)
+test-ingress: ## E2E: publicar servicios — ingress-nginx + cert-manager + ClusterIssuer desde la GUI (k3d)
 	./scripts/test-ingress.sh
 
 test-postgres: ## E2E: store Postgres — multi-réplica + persistencia (levanta su propio Postgres)

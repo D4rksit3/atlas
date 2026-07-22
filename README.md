@@ -136,7 +136,7 @@ por categorías, instalables con un clic (o **instalado ✓** si Atlas los detec
 |---|---|---|
 | GitOps | **Argo CD** | manifiesto |
 | Seguridad | **Kyverno** (políticas) · **Falco** (runtime eBPF) | manifiesto · **Helm** |
-| Redes | **MetalLB** (LoadBalancer) | manifiesto |
+| Redes | **MetalLB** (LoadBalancer) · **Ingress NGINX** · **cert-manager** | manifiesto · **Helm** · **Helm** |
 | Monitoreo | **Metrics Server** · **Prometheus + Grafana** (kube-prometheus-stack) | manifiesto · **Helm** |
 
 Dos formas de instalar: un **manifiesto único** (server-side apply) o un **chart
@@ -156,6 +156,18 @@ agente solo aplica valores en **paths de Helm vetados** por el catálogo
 En un complemento **ya instalado** con parámetros, el botón *editar* reabre el
 formulario y hace `helm upgrade` conservando el resto de valores (`ReuseValues`).
 Verificado con `make test-upgrade`.
+
+### Publicar servicios con TLS (cert-manager)
+
+Con **cert-manager** instalado, el Inspector del clúster muestra **Publicar con
+TLS**: un formulario (email de la cuenta ACME + entorno **staging/production**)
+que crea un **ClusterIssuer** de Let's Encrypt (reto HTTP-01 resuelto por el
+Ingress). El servidor ACME se **deriva del entorno vetado** — la GUI nunca manda
+una URL arbitraria. A partir de ahí, publicar un servicio con HTTPS es anotar su
+Ingress con `cert-manager.io/cluster-issuer: letsencrypt-<env>`. Junto a
+**MetalLB** (IP) e **Ingress NGINX** (enrutado) cierra la cadena de publicación.
+Verificado E2E con `make test-ingress` (instala ambos, crea el ClusterIssuer y
+espera a que cert-manager lo registre en ACME staging y lo deje **Ready**).
 
 > Nota (Helm in-cluster): Helm necesita un directorio de caché escribible. Con
 > `readOnlyRootFilesystem`, monta un `emptyDir` y define `HELM_CACHE_HOME`,

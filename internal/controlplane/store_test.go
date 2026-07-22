@@ -72,6 +72,35 @@ func TestClusterGoesOfflineAfterThreshold(t *testing.T) {
 	}
 }
 
+// TestValidActionRequestIssuer cubre el vetado de la acción 'issuer': email con
+// formato mínimo y entorno ACME dentro del catálogo cerrado. Es la barrera que
+// impide crear un ClusterIssuer mal formado o apuntando a un ACME arbitrario.
+func TestValidActionRequestIssuer(t *testing.T) {
+	cases := []struct {
+		name string
+		req  api.ActionRequest
+		ok   bool
+	}{
+		{"válido staging", api.ActionRequest{Kind: api.ActionIssuer,
+			Issuer: &api.IssuerSpec{Email: "ops@ich.edu.pe", Environment: "staging"}}, true},
+		{"válido production", api.ActionRequest{Kind: api.ActionIssuer,
+			Issuer: &api.IssuerSpec{Email: "ops@ich.edu.pe", Environment: "production"}}, true},
+		{"sin issuer", api.ActionRequest{Kind: api.ActionIssuer}, false},
+		{"email sin @", api.ActionRequest{Kind: api.ActionIssuer,
+			Issuer: &api.IssuerSpec{Email: "ops-ich.edu.pe", Environment: "staging"}}, false},
+		{"entorno inválido", api.ActionRequest{Kind: api.ActionIssuer,
+			Issuer: &api.IssuerSpec{Email: "ops@ich.edu.pe", Environment: "prod"}}, false},
+		{"entorno vacío", api.ActionRequest{Kind: api.ActionIssuer,
+			Issuer: &api.IssuerSpec{Email: "ops@ich.edu.pe"}}, false},
+	}
+	for _, c := range cases {
+		err := validActionRequest(c.req)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, esperaba ok=%v", c.name, err, c.ok)
+		}
+	}
+}
+
 func TestReRegisterKeepsPreviousSnapshot(t *testing.T) {
 	s := NewMemStore(time.Minute)
 	now := time.Now()

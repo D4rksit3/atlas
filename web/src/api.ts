@@ -90,6 +90,13 @@ export interface AppSpec {
   revision?: string;
 }
 
+export interface IssuerSpec {
+  name?: string; // nombre del ClusterIssuer (default letsencrypt-<env>)
+  email: string; // cuenta ACME (avisos de expiración)
+  environment: "staging" | "production";
+  ingressClass?: string; // clase de Ingress para el reto HTTP-01 (default nginx)
+}
+
 export interface Snapshot {
   nodes: Node[] | null;
   workloads: Workload[] | null;
@@ -127,7 +134,8 @@ export type ActionKind =
   | "install"
   | "addapp"
   | "sync"
-  | "rollback";
+  | "rollback"
+  | "issuer";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 export interface ActionRequest {
@@ -139,6 +147,7 @@ export interface ActionRequest {
   addon?: string; // solo para install
   values?: Record<string, string>; // valores del complemento (solo install)
   app?: AppSpec; // solo para addapp
+  issuer?: IssuerSpec; // solo para issuer (crear emisor TLS)
 }
 
 export interface Action {

@@ -67,6 +67,12 @@ export function Inspector({
   const [formKey, setFormKey] = useState<string | null>(null); // addon con formulario abierto
   const [formVals, setFormVals] = useState<Record<string, string>>({});
 
+  // emisor TLS (cert-manager)
+  const [issEmail, setIssEmail] = useState("");
+  const [issEnv, setIssEnv] = useState<"staging" | "production">("staging");
+  const [issBusy, setIssBusy] = useState(false);
+  const [issFb, setIssFb] = useState<Feedback | null>(null);
+
   // proyectos GitOps (form + sync/rollback)
   const [pName, setPName] = useState("");
   const [pRepo, setPRepo] = useState("");
@@ -204,6 +210,37 @@ export function Inspector({
 
   const isInstalled = (key: string) =>
     (cluster?.installedAddons.includes(key) ?? false) || justInstalled.includes(key);
+
+  // ---- emisor TLS (ClusterIssuer de cert-manager) ----
+  async function createIssuer() {
+    if (!cluster) return;
+    if (!issEmail.includes("@")) {
+      setIssFb({ text: "pon un email válido (cuenta ACME)", tone: "err" });
+      return;
+    }
+    setIssBusy(true);
+    setIssFb({ text: "creando emisor TLS…", tone: "info" });
+    try {
+      const a = await postAction(cluster.clusterId, {
+        kind: "issuer",
+        issuer: { email: issEmail.trim(), environment: issEnv },
+      });
+      trackAction(cluster.clusterId, a.id, (ok, err) => {
+        setIssBusy(false);
+        if (ok) {
+          setIssFb({
+            text: `emisor letsencrypt-${issEnv} creado ✓ — anota tus Ingress con cert-manager.io/cluster-issuer: letsencrypt-${issEnv}`,
+            tone: "ok",
+          });
+        } else {
+          setIssFb({ text: `error: ${err}`, tone: "err" });
+        }
+      });
+    } catch (e) {
+      setIssBusy(false);
+      setIssFb({ text: `no se pudo encolar: ${String(e)}`, tone: "err" });
+    }
+  }
 
   // ---- proyectos GitOps ----
   async function addProject() {
@@ -411,6 +448,33 @@ export function Inspector({
                     (o <span className="mono">prom-operator</span> por defecto). Corre el port-forward y abre el enlace.
                   </div>
                 </div>
+              </>
+            )}
+
+            {/* ---- emisor TLS (si cert-manager está) ---- */}
+            {isInstalled("cert-manager") && (
+              <>
+                <div className="insp-section">Publicar con TLS (cert-manager)</div>
+                <div className="insp-hint-sm">
+                  Crea un emisor ACME (Let's Encrypt). Después, publicar un servicio con
+                  HTTPS es anotar su Ingress con{" "}
+                  <span className="mono">cert-manager.io/cluster-issuer</span>.
+                </div>
+                <div className="proj-form">
+                  <label className="insp-label">Email (cuenta ACME · avisos de expiración)</label>
+                  <input className="insp-input" type="email" placeholder="tú@dominio.com"
+                    value={issEmail} onChange={(e) => setIssEmail(e.target.value)} disabled={issBusy} />
+                  <label className="insp-label">Entorno</label>
+                  <select className="insp-input" value={issEnv}
+                    onChange={(e) => setIssEnv(e.target.value as "staging" | "production")} disabled={issBusy}>
+                    <option value="staging">staging (pruebas, sin límites duros)</option>
+                    <option value="production">production (certificados de verdad)</option>
+                  </select>
+                  <button className="btn primary" onClick={createIssuer} disabled={issBusy || !cluster.online}>
+                    {issBusy ? "creando…" : `Crear emisor letsencrypt-${issEnv}`}
+                  </button>
+                </div>
+                {issFb && <div className={`insp-fb ${issFb.tone}`}>{issFb.text}</div>}
               </>
             )}
 

@@ -176,6 +176,8 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.installAddon(ctx, act.Addon, act.Values)
 	case api.ActionAddApp:
 		err = a.addApp(ctx, act.App)
+	case api.ActionIssuer:
+		err = a.createIssuer(ctx, act.Issuer)
 	case api.ActionSync:
 		err = a.syncApp(ctx, act.App)
 	case api.ActionRollback:
@@ -339,6 +341,46 @@ func (a *KubeActuator) addApp(ctx context.Context, spec *api.AppSpec) error {
 		},
 	}}
 	return a.applyOne(ctx, app, "argocd")
+}
+
+// createIssuer crea un ClusterIssuer de cert-manager (emisor ACME/Let's Encrypt)
+// con reto HTTP-01 resuelto por el Ingress. El servidor ACME se DERIVA del entorno
+// vetado (staging/production) — la GUI nunca manda una URL arbitraria. A partir de
+// aquí, publicar un servicio con TLS es anotar el Ingress con este emisor.
+func (a *KubeActuator) createIssuer(ctx context.Context, spec *api.IssuerSpec) error {
+	if spec == nil {
+		return fmt.Errorf("falta la definición del emisor")
+	}
+	if !strings.Contains(spec.Email, "@") {
+		return fmt.Errorf("email ACME inválido")
+	}
+	server, ok := api.ACMEDirectory(spec.Environment)
+	if !ok {
+		return fmt.Errorf("entorno ACME no soportado: %q", spec.Environment)
+	}
+	name := spec.IssuerName()
+	issuer := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "cert-manager.io/v1",
+		"kind":       "ClusterIssuer",
+		"metadata":   map[string]interface{}{"name": name},
+		"spec": map[string]interface{}{
+			"acme": map[string]interface{}{
+				"email":  spec.Email,
+				"server": server,
+				// cert-manager guarda aquí la clave de la cuenta ACME (la crea él).
+				"privateKeySecretRef": map[string]interface{}{"name": name},
+				"solvers": []interface{}{
+					map[string]interface{}{
+						"http01": map[string]interface{}{
+							"ingress": map[string]interface{}{"ingressClassName": spec.IngressClassOr()},
+						},
+					},
+				},
+			},
+		},
+	}}
+	// ClusterIssuer es cluster-scoped; applyOne lo detecta por el RESTMapping.
+	return a.applyOne(ctx, issuer, "")
 }
 
 // syncApp fuerza una sincronización del proyecto (Application) a su revisión

@@ -129,7 +129,56 @@ const (
 	ActionAddApp   = "addapp"   // registrar un proyecto GitOps (Application de ArgoCD)
 	ActionSync     = "sync"     // forzar sincronización de un proyecto GitOps
 	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
+	ActionIssuer   = "issuer"   // crear un ClusterIssuer de cert-manager (TLS ACME)
 )
+
+// Entornos ACME válidos para un ClusterIssuer. El servidor ACME se DERIVA del
+// entorno (nunca es una URL arbitraria de la GUI): así el catálogo de emisores es
+// cerrado, como el de complementos.
+const (
+	ACMEStaging    = "staging"    // Let's Encrypt staging (pruebas, sin límites duros)
+	ACMEProduction = "production" // Let's Encrypt producción (certs de verdad)
+)
+
+// ACMEDirectory devuelve la URL del directorio ACME para un entorno vetado.
+// El segundo valor es false si el entorno no está soportado.
+func ACMEDirectory(env string) (string, bool) {
+	switch env {
+	case ACMEStaging:
+		return "https://acme-staging-v02.api.letsencrypt.org/directory", true
+	case ACMEProduction:
+		return "https://acme-v02.api.letsencrypt.org/directory", true
+	default:
+		return "", false
+	}
+}
+
+// IssuerSpec describe el ClusterIssuer de cert-manager a crear: emisor ACME
+// (Let's Encrypt) con reto HTTP-01 resuelto por el Ingress. Es lo que convierte a
+// cert-manager en algo útil: a partir de aquí, publicar un servicio con TLS es
+// añadir una anotación al Ingress. NO expone la URL ACME (se deriva del entorno).
+type IssuerSpec struct {
+	Name         string `json:"name,omitempty"`         // nombre del ClusterIssuer (default: letsencrypt-<env>)
+	Email        string `json:"email"`                  // email de la cuenta ACME (avisos de expiración)
+	Environment  string `json:"environment"`            // staging | production
+	IngressClass string `json:"ingressClass,omitempty"` // clase de Ingress para el reto HTTP-01 (default: nginx)
+}
+
+// IssuerName es el nombre efectivo del ClusterIssuer (el dado, o letsencrypt-<env>).
+func (s IssuerSpec) IssuerName() string {
+	if s.Name != "" {
+		return s.Name
+	}
+	return "letsencrypt-" + s.Environment
+}
+
+// IngressClassOr devuelve la clase de Ingress a usar (default "nginx").
+func (s IssuerSpec) IngressClassOr() string {
+	if s.IngressClass != "" {
+		return s.IngressClass
+	}
+	return "nginx"
+}
 
 // AddonParam es un valor editable de un complemento al instalarlo (p. ej. la
 // contraseña de Grafana). Path es la ruta VETADA en los values de Helm; el agente
@@ -212,6 +261,7 @@ type ActionRequest struct {
 	Addon        string            `json:"addon,omitempty"`  // complemento a instalar (solo install)
 	Values       map[string]string `json:"values,omitempty"` // valores del complemento (solo install)
 	App          *AppSpec          `json:"app,omitempty"`    // proyecto a registrar (solo addapp)
+	Issuer       *IssuerSpec       `json:"issuer,omitempty"` // emisor TLS a crear (solo issuer)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
@@ -225,6 +275,7 @@ type Action struct {
 	Addon        string            `json:"addon,omitempty"`
 	Values       map[string]string `json:"values,omitempty"`
 	App          *AppSpec          `json:"app,omitempty"`
+	Issuer       *IssuerSpec       `json:"issuer,omitempty"`
 	Status       string            `json:"status"`
 	Error        string            `json:"error,omitempty"`
 	RequestedBy  string            `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)

@@ -40,6 +40,14 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Emisores TLS de cert-manager (crear un ClusterIssuer ACME/Let's Encrypt desde
+  # la GUI). Permiso ACOTADO a este recurso — no da acceso a otros. Instalar
+  # cert-manager en sí (crear sus CRDs) sigue necesitando el opt-in amplio
+  # (deploy/agent-addons.yaml). La CRD clusterissuers aparece al instalarlo; la
+  # regla se puede aplicar antes (referir un recurso aún inexistente es válido).
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atlasctl/atlas/pkg/api"
@@ -81,6 +82,11 @@ func summarize(a api.Action) string {
 			return fmt.Sprintf("registrar proyecto GitOps %q (%s)", a.App.Name, a.App.RepoURL)
 		}
 		return "registrar proyecto GitOps"
+	case api.ActionIssuer:
+		if a.Issuer != nil {
+			return fmt.Sprintf("crear emisor TLS %q (%s)", a.Issuer.IssuerName(), a.Issuer.Environment)
+		}
+		return "crear emisor TLS"
 	case api.ActionSync:
 		if a.App != nil {
 			return fmt.Sprintf("sincronizar proyecto %q", a.App.Name)
@@ -121,6 +127,17 @@ func validActionRequest(req api.ActionRequest) error {
 	case api.ActionAddApp:
 		if req.App == nil || req.App.Name == "" || req.App.RepoURL == "" || req.App.Namespace == "" {
 			return errors.New("addapp requiere app.name, app.repoURL y app.namespace")
+		}
+		return nil
+	case api.ActionIssuer:
+		if req.Issuer == nil {
+			return errors.New("issuer requiere el objeto 'issuer'")
+		}
+		if !strings.Contains(req.Issuer.Email, "@") {
+			return errors.New("issuer requiere un email válido (cuenta ACME)")
+		}
+		if _, ok := api.ACMEDirectory(req.Issuer.Environment); !ok {
+			return errors.New("issuer.environment debe ser 'staging' o 'production'")
 		}
 		return nil
 	case api.ActionSync, api.ActionRollback:
