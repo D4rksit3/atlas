@@ -1,8 +1,9 @@
-// Asistente "Vincular clúster": genera los comandos y el manifiesto listos para
-// copiar y así conectar OTRO clúster/servidor a este control plane. No expone la
-// CA ni muta nada — solo genera artefactos que tú ejecutas (cert offline +
-// manifiesto del agente con mTLS).
+// Asistente "Vincular clúster". Camino principal: VINCULACIÓN POR TOKEN — un
+// token de un solo uso (15 min) y UN comando en el clúster nuevo; el control
+// plane emite el certificado mTLS al vuelo y sirve el manifiesto autocontenido.
+// Camino alternativo (colapsable): el flujo manual con la CA offline.
 import { useState } from "react";
+import { authHeaders } from "./api";
 
 function slug(s: string): string {
   return s
@@ -38,9 +39,37 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("onprem");
   const [cp, setCp] = useState(window.location.origin);
+  const [manual, setManual] = useState(false);
+  const [tokenCmd, setTokenCmd] = useState<string | null>(null);
+  const [tokenExp, setTokenExp] = useState<string | null>(null);
+  const [tokenErr, setTokenErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const id = slug(name || "mi cluster");
   const cpURL = cp.replace(/\/$/, "");
+
+  // Pide un token de un solo uso y arma el comando único.
+  const createToken = async () => {
+    setBusy(true);
+    setTokenErr(null);
+    try {
+      const res = await fetch("/v1/enroll", {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ name: name.trim() || "mi clúster", provider }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setTokenCmd(
+        `curl -sf ${window.location.origin}/v1/enroll/${body.token} | kubectl apply -f -`,
+      );
+      setTokenExp(new Date(body.expiresAt).toLocaleTimeString());
+    } catch (e) {
+      setTokenErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const certCmd = `# 1) Genera el certificado del agente (usa tu CA de Atlas, offline)
 go run ./cmd/atlas-certs client --out certs --name ${id}`;
@@ -125,13 +154,44 @@ EOF`;
         </div>
 
         <div className="ob-body">
-          <Block title="1 · Certificado del agente" code={certCmd} />
-          <Block title="2 · Secret con el certificado" code={secretCmd} />
-          <Block title="3 · Desplegar el agente" code={manifest} />
-          <div className="ob-note">
-            El agente aparecerá en el mapa en cuanto marque hacia casa. Ajusta la imagen si publicas
-            la tuya (<span className="mono">ghcr.io/TU-ORG/atlas-agent</span>).
-          </div>
+          {/* ---- camino principal: token de un solo uso, UN comando ---- */}
+          {!tokenCmd ? (
+            <>
+              <button className="btn primary" onClick={createToken} disabled={busy}>
+                {busy ? "generando…" : "Generar comando de vinculación"}
+              </button>
+              {tokenErr && <div className="login-err">{tokenErr}</div>}
+              <div className="ob-note">
+                Genera un token de <b>un solo uso</b> (caduca en 15 min). En el clúster
+                nuevo ejecutas UN comando: el control plane emite su certificado mTLS
+                al vuelo y devuelve el manifiesto completo del agente.
+              </div>
+            </>
+          ) : (
+            <>
+              <Block title="Ejecuta esto en el clúster NUEVO (un solo uso)" code={tokenCmd} />
+              <div className="ob-note">
+                Caduca a las <b>{tokenExp}</b> y solo funciona UNA vez — quedó auditado.
+                El agente aparecerá en el mapa en cuanto marque hacia casa.
+              </div>
+            </>
+          )}
+
+          {/* ---- camino alternativo: flujo manual con la CA offline ---- */}
+          <button className="svc-catalog-toggle" onClick={() => setManual((v) => !v)}>
+            {manual ? "▾" : "▸"} Flujo manual (CA offline, sin token)
+          </button>
+          {manual && (
+            <>
+              <Block title="1 · Certificado del agente" code={certCmd} />
+              <Block title="2 · Secret con el certificado" code={secretCmd} />
+              <Block title="3 · Desplegar el agente" code={manifest} />
+              <div className="ob-note">
+                El agente aparecerá en el mapa en cuanto marque hacia casa. Ajusta la imagen si publicas
+                la tuya (<span className="mono">ghcr.io/TU-ORG/atlas-agent</span>).
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

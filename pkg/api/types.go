@@ -448,6 +448,7 @@ const (
 	AuditMapEdited = "map.edited"       // un usuario editó metadatos del mapa
 	AuditLogin     = "auth.login"       // intento de login local (ok o fallido)
 	AuditUser      = "user.managed"     // alta/baja de un usuario local
+	AuditEnroll    = "cluster.enroll"   // token de vinculación creado/canjeado
 )
 
 // LocalUser es un usuario local de Atlas creado desde la GUI (además del admin
@@ -520,4 +521,24 @@ type ClusterView struct {
 type Topology struct {
 	Clusters    []ClusterView `json:"clusters"`
 	GeneratedAt time.Time     `json:"generatedAt"`
+}
+
+// ---- Vinculación de clústeres por token (enrolamiento) ----
+
+// EnrollRequest pide un token de vinculación desde la GUI (rol operator).
+type EnrollRequest struct {
+	Name     string   `json:"name"`     // nombre legible del clúster nuevo
+	Provider Provider `json:"provider"` // onprem | aws | oci
+}
+
+// EnrollToken es un token de vinculación de UN SOLO USO y con caducidad corta:
+// quien lo presenta en GET /v1/enroll/{token} recibe el manifiesto del agente
+// con un certificado mTLS recién emitido. El token en claro solo se devuelve al
+// crearlo (en reposo se guarda su hash); queda auditado quién lo creó y cuándo
+// se consumió.
+type EnrollToken struct {
+	Token     string    `json:"token,omitempty"` // solo presente al crearlo
+	Name      string    `json:"name"`
+	Provider  Provider  `json:"provider"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }

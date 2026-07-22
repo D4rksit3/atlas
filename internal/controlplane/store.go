@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -67,6 +68,28 @@ type Store interface {
 	// UserAuth devuelve el hash y rol de un usuario para el login (ok=false si
 	// no existe). No audita: eso lo hace RecordLogin.
 	UserAuth(username string) (hash, role string, ok bool)
+
+	// CreateEnrollToken emite un token de vinculación de un solo uso (caduca en
+	// EnrollTTL). En reposo se guarda su hash; el token en claro solo sale aquí.
+	// Queda auditado con el actor que lo pidió.
+	CreateEnrollToken(name string, provider api.Provider, actor string, now time.Time) (api.EnrollToken, error)
+	// ConsumeEnrollToken valida y QUEMA un token (un solo uso): devuelve sus
+	// datos si era válido, o ErrBadEnrollToken si no existe, caducó o ya se usó.
+	ConsumeEnrollToken(token string, now time.Time) (api.EnrollToken, error)
+}
+
+// EnrollTTL es la vida de un token de vinculación.
+const EnrollTTL = 15 * time.Minute
+
+// ErrBadEnrollToken cubre token inexistente, caducado o ya usado — a propósito
+// indistinguibles para quien lo presenta.
+var ErrBadEnrollToken = errors.New("token de vinculación inválido, caducado o ya usado")
+
+// hashEnrollToken es la forma en reposo del token (que la DB no guarde nada
+// directamente canjeable).
+func hashEnrollToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 // ErrUserExists / ErrUnknownUser: altas duplicadas y bajas de inexistentes.

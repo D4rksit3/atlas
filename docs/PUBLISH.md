@@ -58,6 +58,27 @@ En el proxy externo: un host para `atlas.seguricloud.com` → `IP-privada:8880`
 **login local** (usuario `admin` + contraseña generada que muestra UNA vez), así
 que la GUI ya no queda abierta aunque no configures OIDC.
 
+## Vincular OTROS clústeres por token (un comando)
+
+Con la CA montada en el control plane, "+ Vincular clúster" genera un token de
+un solo uso (15 min): en el clúster nuevo se ejecuta UN comando y listo.
+Activarlo (una vez):
+
+```bash
+# 1) Genera la PKI de Atlas (si no existe) y móntala como Secret:
+go run ./cmd/atlas-certs init --out pki
+kubectl -n atlas-system create secret generic atlas-ca \
+  --from-file=ca.crt=pki/ca.crt --from-file=ca.key=pki/ca.key
+# 2) En deploy/controlplane.yaml: monta el Secret y define
+#    ATLAS_CA_CERT/ATLAS_CA_KEY + ATLAS_AGENT_PUBLIC_URL + ATLAS_AGENT_IMAGE.
+```
+
+**OJO detrás de Nginx Proxy Manager:** los agentes remotos hablan mTLS — NPM no
+puede terminar ese TLS. Publica el puerto mTLS del control plane con un
+**Stream** de NPM (TCP passthrough, p. ej. 8443 → IP-privada:puerto-mTLS) y usa
+esa URL como `ATLAS_AGENT_PUBLIC_URL`. La imagen del agente debe ser accesible
+desde el clúster remoto (tu Harbor o un registro público).
+
 ## Resumen
 
 ```

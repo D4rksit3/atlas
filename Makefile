@@ -114,6 +114,9 @@ test-login: ## E2E: login local integrado (API cerrada sin sesión, auditoría, 
 test-services: ## E2E: panel de servicios — login en clúster + publicar/abrir un servicio (k3d)
 	./scripts/test-services.sh
 
+test-enroll: ## E2E: vinculación por token (un solo uso, cert al vuelo firmado por la CA)
+	./scripts/test-enroll.sh
+
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1
 

@@ -79,6 +79,14 @@ CREATE TABLE IF NOT EXISTS atlas_users (
     created_by TEXT        NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL
 );
+CREATE TABLE IF NOT EXISTS enroll_tokens (
+    token_hash TEXT PRIMARY KEY,
+    name       TEXT        NOT NULL,
+    provider   TEXT        NOT NULL,
+    created_by TEXT        NOT NULL DEFAULT '',
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS annotations (
     key          TEXT PRIMARY KEY,
     display_name TEXT        NOT NULL DEFAULT '',
@@ -254,6 +262,48 @@ func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, actor s
 		Summary: summarize(a), Outcome: api.ActionPending,
 	})
 	return a, nil
+}
+
+func (s *PgStore) CreateEnrollToken(name string, provider api.Provider, actor string, now time.Time) (api.EnrollToken, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	token := newToken() + newToken() // 256 bits: es una credencial, no un id
+	et := api.EnrollToken{Token: token, Name: name, Provider: provider, ExpiresAt: now.Add(EnrollTTL)}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO enroll_tokens (token_hash, name, provider, created_by, expires_at)
+		VALUES ($1,$2,$3,$4,$5)`,
+		hashEnrollToken(token), name, string(provider), actor, et.ExpiresAt)
+	if err != nil {
+		return api.EnrollToken{}, fmt.Errorf("creando token de vinculación: %w", err)
+	}
+	s.insertAudit(ctx, api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditEnroll,
+		Summary: fmt.Sprintf("creó un token de vinculación para %q (caduca %s)", name, et.ExpiresAt.Format(time.RFC3339)),
+		Outcome: api.ActionDone,
+	})
+	return et, nil
+}
+
+func (s *PgStore) ConsumeEnrollToken(token string, now time.Time) (api.EnrollToken, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Validar y QUEMAR en una sola sentencia: el used_at evita el doble canje
+	// aunque dos peticiones lleguen a la vez (incluso entre réplicas).
+	var et api.EnrollToken
+	err := s.pool.QueryRow(ctx, `
+		UPDATE enroll_tokens SET used_at = $2
+		WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2
+		RETURNING name, provider, expires_at`,
+		hashEnrollToken(token), now).Scan(&et.Name, &et.Provider, &et.ExpiresAt)
+	if err != nil {
+		return api.EnrollToken{}, ErrBadEnrollToken
+	}
+	s.insertAudit(ctx, api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: "enroll", Event: api.AuditEnroll,
+		Summary: fmt.Sprintf("token de vinculación canjeado: se emitió certificado para %q", et.Name),
+		Outcome: api.ActionDone,
+	})
+	return et, nil
 }
 
 func (s *PgStore) insertAudit(ctx context.Context, e api.AuditEntry) {

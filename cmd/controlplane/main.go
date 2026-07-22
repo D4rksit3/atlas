@@ -19,6 +19,7 @@ import (
 	"github.com/atlasctl/atlas/internal/auth"
 	"github.com/atlasctl/atlas/internal/controlplane"
 	"github.com/atlasctl/atlas/internal/mtls"
+	"github.com/atlasctl/atlas/internal/pki"
 )
 
 func main() {
@@ -41,6 +42,10 @@ func main() {
 	sessionTTL := flag.Duration("session-ttl", envDurationOr("ATLAS_SESSION_TTL", 12*time.Hour), "vida de una sesión del login local")
 	rateLimit := flag.Float64("rate-limit", 20, "peticiones/segundo por IP (0 = sin límite)")
 	alertWebhook := flag.String("alert-webhook", os.Getenv("ATLAS_ALERT_WEBHOOK"), "URL a la que POSTear las alertas (JSON) cuando aparecen o se resuelven. Vacío = solo panel")
+	caCert := flag.String("ca-cert", os.Getenv("ATLAS_CA_CERT"), "cert de la CA de Atlas (activa la vinculación por token junto a --ca-key y --agent-public-url)")
+	caKey := flag.String("ca-key", os.Getenv("ATLAS_CA_KEY"), "clave de la CA de Atlas")
+	agentPublicURL := flag.String("agent-public-url", os.Getenv("ATLAS_AGENT_PUBLIC_URL"), "URL mTLS pública a la que marcarán los agentes remotos vinculados por token")
+	agentImage := flag.String("agent-image", envOr("ATLAS_AGENT_IMAGE", "ghcr.io/atlasctl/atlas-agent:latest"), "imagen del agente en el manifiesto de vinculación")
 	flag.Parse()
 
 	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)
@@ -53,6 +58,22 @@ func main() {
 	}
 	srv := controlplane.NewServer(store, *heartbeat, *corsOrigin, authn)
 	srv.SetRateLimit(*rateLimit, int(*rateLimit*2))
+
+	// Vinculación por token: si la CA está montada, el control plane puede
+	// emitir certs de agente al vuelo y servir el manifiesto autocontenido.
+	if *caCert != "" && *caKey != "" {
+		if *agentPublicURL == "" {
+			log.Fatalf("--ca-cert/--ca-key requieren --agent-public-url (a dónde marcarán los agentes vinculados)")
+		}
+		ca, err := pki.LoadCA(*caCert, *caKey)
+		if err != nil {
+			log.Fatalf("cargando la CA para vinculación: %v", err)
+		}
+		srv.SetEnroll(controlplane.EnrollConfig{
+			CA: ca, PublicURL: *agentPublicURL, AgentImage: *agentImage,
+		})
+		log.Printf("vinculación por token ACTIVA (agentes marcarán a %s; tokens de un solo uso, TTL 15m)", *agentPublicURL)
+	}
 
 	// Vigilante de alertas: evalúa cada 30s y notifica flancos por webhook.
 	alerter := controlplane.NewAlerter(store, *alertWebhook)

@@ -24,6 +24,7 @@ type Server struct {
 	loginLimiter      *ipLimiter          // límite estricto de intentos de login por IP
 	hub               *hub                // timbre GUI -> streams gRPC (empuje al instante)
 	alerter           *Alerter            // vigilante de alertas (nil = evaluar al vuelo)
+	enroll            *EnrollConfig       // vinculación por token (nil = deshabilitada)
 }
 
 // SetAlerter conecta el vigilante de alertas (para que /v1/alerts conserve el
@@ -90,6 +91,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /v1/annotations/{key...}", s.guard(auth.RoleOperator, s.handleSetAnnotation))
 	// Alertas activas (clúster offline, nodos NotReady, pods en CrashLoop…).
 	mux.Handle("GET /v1/alerts", s.guard(auth.RoleViewer, s.handleAlerts))
+	// Vinculación de clústeres por token (crear = operator; canjear = el token).
+	s.enrollRoutes(mux)
 	// Usuarios locales (equipo): gestionarlos exige rol operator.
 	mux.Handle("GET /v1/users", s.guard(auth.RoleOperator, s.handleListUsers))
 	mux.Handle("POST /v1/users", s.guard(auth.RoleOperator, s.handleCreateUser))

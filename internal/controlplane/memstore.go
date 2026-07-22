@@ -26,12 +26,21 @@ type MemStore struct {
 	audit        []api.AuditEntry          // rastro de auditoría (más antiguo primero)
 	annotations  map[string]api.Annotation // metadatos del mapa por clave
 	users        map[string]localUserRec   // usuarios locales creados desde la GUI
+	enrolls      map[string]*enrollState   // tokens de vinculación, por HASH
 }
 
 // localUserRec guarda un usuario local con su hash bcrypt (nunca sale de aquí).
 type localUserRec struct {
 	hash string
 	info api.LocalUser
+}
+
+// enrollState es un token de vinculación en reposo (solo el hash lo referencia).
+type enrollState struct {
+	name      string
+	provider  api.Provider
+	expiresAt time.Time
+	used      bool
 }
 
 const maxAudit = 1000 // tope del registro en memoria
@@ -44,7 +53,38 @@ func NewMemStore(offlineAfter time.Duration) *MemStore {
 		offlineAfter: offlineAfter,
 		annotations:  make(map[string]api.Annotation),
 		users:        make(map[string]localUserRec),
+		enrolls:      make(map[string]*enrollState),
 	}
+}
+
+func (s *MemStore) CreateEnrollToken(name string, provider api.Provider, actor string, now time.Time) (api.EnrollToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	token := newToken() + newToken() // 256 bits: es una credencial, no un id
+	et := api.EnrollToken{Token: token, Name: name, Provider: provider, ExpiresAt: now.Add(EnrollTTL)}
+	s.enrolls[hashEnrollToken(token)] = &enrollState{name: name, provider: provider, expiresAt: et.ExpiresAt}
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: actor, Event: api.AuditEnroll,
+		Summary: fmt.Sprintf("creó un token de vinculación para %q (caduca %s)", name, et.ExpiresAt.Format(time.RFC3339)),
+		Outcome: api.ActionDone,
+	})
+	return et, nil
+}
+
+func (s *MemStore) ConsumeEnrollToken(token string, now time.Time) (api.EnrollToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.enrolls[hashEnrollToken(token)]
+	if !ok || e.used || now.After(e.expiresAt) {
+		return api.EnrollToken{}, ErrBadEnrollToken
+	}
+	e.used = true // un solo uso: se quema aunque el resto del enrolamiento falle
+	s.appendAudit(api.AuditEntry{
+		ID: newActionID(), Time: now, Actor: "enroll", Event: api.AuditEnroll,
+		Summary: fmt.Sprintf("token de vinculación canjeado: se emitió certificado para %q", e.name),
+		Outcome: api.ActionDone,
+	})
+	return api.EnrollToken{Name: e.name, Provider: e.provider, ExpiresAt: e.expiresAt}, nil
 }
 
 // appendAudit añade una entrada (requiere el lock tomado por el llamador).
