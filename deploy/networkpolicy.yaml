@@ -2,13 +2,21 @@
 #
 #   kubectl apply -f deploy/networkpolicy.yaml
 #
-# Modelo: DENEGAR TODO el ingress por defecto y abrir solo lo necesario. Reduce el
-# movimiento lateral si otro pod del clúster se ve comprometido. Requiere un CNI
-# que aplique NetworkPolicy (Cilium, Calico; k3s/k3d lo aplican de serie).
+# Modelo: DENEGAR TODO por defecto (ingress Y egress) y abrir solo lo necesario.
+# Reduce el movimiento lateral y la exfiltración si otro pod del clúster se ve
+# comprometido. Requiere un CNI que aplique NetworkPolicy (Cilium, Calico; k3s/k3d
+# lo aplican de serie, incluido el egress — verificado).
 #
-# Egress se deja abierto A PROPÓSITO: el control plane sale a Postgres/OIDC y el
-# agente a la API de Kubernetes y a DNS. Bloquear egress es el siguiente paso
-# (hay que enumerar esos destinos) — ver SECURITY.md.
+# Egress ACOTADO por componente (lo mínimo que cada uno necesita):
+#   - web:          DNS + control plane :8080 (proxy de /v1). Nada más.
+#   - control plane: DNS + Postgres :5432 + OIDC :443 (verificar JWKS del IdP).
+#   - agente:       DNS + control plane :8080 + API de K8s :443/6443 + descarga de
+#                   charts/manifiestos de complementos :443 + Hubble :80 (opcional).
+#
+# LÍMITE de la NetworkPolicy estándar: filtra egress por IP/puerto o selector
+# in-cluster, NO por nombre DNS. Los destinos externos (OIDC, repos de charts, ACME)
+# se acotan por PUERTO (443/5432), no por host. Para fijar los HOSTS exactos con
+# Cilium (ya lo usáis), aplica además deploy/networkpolicy-cilium.yaml (toFQDNs).
 ---
 # 1) Default-deny de ingress para TODO el namespace. Cualquier entrada no
 #    permitida explícitamente abajo queda bloqueada.
@@ -76,3 +84,99 @@ spec:
   podSelector:
     matchLabels: { app: atlas-agent }
   policyTypes: [Ingress]
+---
+# ===== EGRESS =====
+#
+# 5) Default-deny de EGRESS para todo el namespace. Cualquier salida no permitida
+#    abajo queda bloqueada (evita exfiltración/lateral egress si un pod cae).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: atlas-system
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+---
+# 6) DNS para todos: sin esto nada resuelve nombres. Solo al puerto 53 de kube-dns
+#    (namespace kube-system). No abre ningún otro destino.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: atlas-system
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# 7) La GUI solo sale al control plane (proxy de /v1) en :8080. Nada más.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-egress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-web }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: atlas-controlplane } }
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+# 8) El control plane sale SOLO a: Postgres (:5432, si --store=postgres) y el IdP
+#    OIDC (:443, verificación de JWKS). No habla con los agentes (ellos marcan
+#    hacia él). Estos destinos son externos: se acotan por PUERTO. Para fijar el
+#    host exacto usa la CiliumNetworkPolicy (toFQDNs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-controlplane-egress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-controlplane }
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - { protocol: TCP, port: 5432 } # Postgres
+        - { protocol: TCP, port: 443 } # OIDC IdP (JWKS/tokens)
+---
+# 9) El agente sale a: el control plane del mismo clúster (:8080), la API de
+#    Kubernetes (:443/:6443, client-go), la descarga de charts/manifiestos de
+#    complementos y un control plane remoto por mTLS (:443), y Hubble relay (:80,
+#    solo con --links=hubble). El :443 abarca varios destinos externos: se acota
+#    por puerto (host exacto → CiliumNetworkPolicy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent-egress
+  namespace: atlas-system
+spec:
+  podSelector:
+    matchLabels: { app: atlas-agent }
+  policyTypes: [Egress]
+  egress:
+    # Control plane del mismo clúster (self-monitor).
+    - to:
+        - podSelector: { matchLabels: { app: atlas-controlplane } }
+      ports:
+        - { protocol: TCP, port: 8080 }
+    # API de K8s + control plane remoto (mTLS) + charts/manifiestos externos.
+    - ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 6443 }
+    # Hubble relay (colector de enlaces), solo si se usa --links=hubble.
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports:
+        - { protocol: TCP, port: 80 }

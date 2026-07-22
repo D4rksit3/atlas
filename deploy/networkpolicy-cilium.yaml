@@ -1,0 +1,92 @@
+# Acotado de egress por NOMBRE DE HOST (toFQDNs) — capa Cilium, OPCIONAL.
+#
+#   kubectl apply -f deploy/networkpolicy-cilium.yaml   # requiere Cilium
+#
+# La NetworkPolicy estándar (deploy/networkpolicy.yaml) acota el egress por PUERTO,
+# pero no puede fijar destinos externos por nombre DNS. Esta CiliumNetworkPolicy sí:
+# permite el egress SOLO a los hosts listados (charts, OIDC, ACME…), resueltos por
+# el proxy DNS de Cilium. Es la versión ESTRICTA para quien ya corre Cilium.
+#
+# PERSONALÍZALA: los hosts de tu IdP OIDC y tu Postgres son propios de tu despliegue
+# (marcados con TODO). Los repos de charts corresponden al catálogo de complementos
+# fijado en el código (pkg/api + internal/agent).
+#
+# Nota: con Cilium, ESTA policy convive con la estándar; aplica ambas. Cilium exige
+# una regla DNS explícita (toPorts 53 + rules.dns) para que toFQDNs funcione.
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: atlas-agent-egress-fqdn
+  namespace: atlas-system
+spec:
+  endpointSelector:
+    matchLabels: { app: atlas-agent }
+  egress:
+    # DNS a kube-dns con inspección (necesario para que toFQDNs resuelva).
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - { port: "53", protocol: ANY }
+          rules:
+            dns:
+              - matchPattern: "*"
+    # API de Kubernetes (entidad especial de Cilium).
+    - toEntities: [kube-apiserver]
+    # Control plane del mismo clúster.
+    - toEndpoints:
+        - matchLabels: { app: atlas-controlplane }
+      toPorts:
+        - ports:
+            - { port: "8080", protocol: TCP }
+    # Repos de charts y manifiestos de los complementos del catálogo (HTTPS).
+    - toFQDNs:
+        - matchName: "kubernetes.github.io" # ingress-nginx
+        - matchName: "charts.jetstack.io" # cert-manager
+        - matchName: "prometheus-community.github.io" # kube-prometheus-stack
+        - matchName: "falcosecurity.github.io" # falco
+        - matchName: "raw.githubusercontent.com" # manifiestos (argocd, metallb…)
+        - matchName: "github.com" # releases (kyverno, metrics-server)
+        - matchPattern: "*.githubusercontent.com" # assets de releases
+      toPorts:
+        - ports:
+            - { port: "443", protocol: TCP }
+    # TODO: si el control plane es REMOTO, fija su host (mTLS :443).
+    # - toFQDNs:
+    #     - matchName: "atlas-controlplane.example.com"
+    #   toPorts:
+    #     - ports: [ { port: "443", protocol: TCP } ]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: atlas-controlplane-egress-fqdn
+  namespace: atlas-system
+spec:
+  endpointSelector:
+    matchLabels: { app: atlas-controlplane }
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - { port: "53", protocol: ANY }
+          rules:
+            dns:
+              - matchPattern: "*"
+    # TODO: fija el host de tu IdP OIDC (verificación de JWKS/tokens).
+    - toFQDNs:
+        - matchName: "tu-idp.example.com" # <-- CAMBIA por tu issuer OIDC
+      toPorts:
+        - ports:
+            - { port: "443", protocol: TCP }
+    # TODO: si Postgres es EXTERNO, fija su host; si es in-cluster, usa toEndpoints.
+    # - toFQDNs:
+    #     - matchName: "postgres.example.com"
+    #   toPorts:
+    #     - ports: [ { port: "5432", protocol: TCP } ]

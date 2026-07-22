@@ -2,7 +2,7 @@
 # Requisitos: Go 1.22+ y Node 20+.
 
 .PHONY: help up install build controlplane agent run-controlplane run-agent \
-        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-rotation test-revocation test-ingress test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade test-install vet fmt lint tidy docker-up docker-down clean
+        web-install web-dev test test-kube test-hubble test-deploy test-mtls test-rotation test-revocation test-netpol test-ingress test-postgres test-actions test-oidc test-audit test-annotations test-argocd test-gitops test-sync test-addons test-helm test-values test-upgrade test-install vet fmt lint tidy docker-up docker-down clean
 
 help: ## Muestra esta ayuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -54,6 +54,9 @@ test-rotation: ## E2E: rotación de certs (hojas cortas por CLI + hot-reload sin
 
 test-revocation: ## E2E: revocación inmediata de certs (CRL firmada por la CA + corte en caliente)
 	./scripts/test-revocation.sh
+
+test-netpol: ## E2E: acotado de egress por componente (NetworkPolicy default-deny, k3d)
+	./scripts/test-netpol.sh
 
 test-ingress: ## E2E: publicar servicios — ingress-nginx + cert-manager + ClusterIssuer desde la GUI (k3d)
 	./scripts/test-ingress.sh

@@ -106,16 +106,37 @@ agentes (hoy la reparte quien despliega).
 
 ## Aislamiento de red (NetworkPolicy)
 
-`deploy/networkpolicy.yaml` aplica **default-deny de ingress** en `atlas-system` y
-abre solo lo imprescindible: la GUI (:8080, punto de entrada tras el Ingress y
-protegida por OIDC), el control plane (:8080, solo desde la GUI y el agente del
-mismo clúster) y el agente sin ingress alguno (coherente con el modelo saliente).
-El egress se deja abierto a propósito (control plane → Postgres/OIDC, agente → API
-de Kubernetes y DNS); acotarlo es el siguiente paso. Requiere un CNI que aplique
-NetworkPolicy (Cilium, Calico; k3s/k3d de serie).
+`deploy/networkpolicy.yaml` aplica **default-deny de ingress Y egress** en
+`atlas-system` y abre solo lo imprescindible.
+
+**Ingress:** la GUI (:8080, punto de entrada tras el Ingress y protegida por OIDC),
+el control plane (:8080, solo desde la GUI y el agente del mismo clúster) y el
+agente sin ingress alguno (coherente con el modelo saliente).
+
+**Egress (acotado por componente):** cada pod sale solo a donde necesita:
+
+| Componente | Egress permitido |
+|---|---|
+| web | DNS · control plane :8080 |
+| control plane | DNS · Postgres :5432 · OIDC :443 |
+| agente | DNS · control plane :8080 · API de K8s :443/6443 · charts/manifiestos :443 · Hubble :80 |
+
+Todo lo demás se deniega (corta exfiltración y egress lateral si un pod cae).
+
+**Límite** de la NetworkPolicy estándar: filtra por IP/puerto, **no por nombre
+DNS**; los destinos externos (OIDC, repos de charts, ACME) se acotan por puerto.
+Para fijar los **hosts exactos**, `deploy/networkpolicy-cilium.yaml` añade una
+`CiliumNetworkPolicy` con `toFQDNs` (ya usamos Cilium) — personaliza los hosts de
+tu IdP/Postgres.
+
+Requiere un CNI que aplique NetworkPolicy incluido el egress (Cilium, Calico;
+k3s/k3d de serie — **verificado**). Verificado E2E (`make test-netpol`): un pod por
+componente comprueba la matriz permitido/denegado (p. ej. la GUI no sale a internet
+mientras el control plane sí llega a :443 — el egress es por componente, no global).
 
 ```bash
 kubectl apply -f deploy/networkpolicy.yaml
+kubectl apply -f deploy/networkpolicy-cilium.yaml   # opcional, con Cilium: fija hosts
 ```
 
 ## Cómo endurecerlo (orden recomendado)
