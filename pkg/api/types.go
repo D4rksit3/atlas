@@ -102,6 +102,19 @@ type App struct {
 	Resources []AppResource `json:"resources,omitempty"`
 }
 
+// IngressInfo es una ruta de entrada publicada en el clúster: qué host lleva a
+// qué Service. Con esto el panel de servicios sabe la URL real de cada cosa.
+type IngressInfo struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Class     string `json:"class,omitempty"`
+	Host      string `json:"host"`
+	Path      string `json:"path,omitempty"`
+	Service   string `json:"service"` // Service de backend
+	Port      int    `json:"port"`
+	TLS       bool   `json:"tls"` // el host tiene bloque TLS (https)
+}
+
 // Snapshot es la foto del clúster que el agente envía en cada heartbeat.
 type Snapshot struct {
 	Nodes     []Node     `json:"nodes"`
@@ -109,6 +122,8 @@ type Snapshot struct {
 	Links     []Link     `json:"links"`
 	// Apps: proyectos GitOps (Applications de ArgoCD) si ArgoCD está instalado.
 	Apps []App `json:"apps,omitempty"`
+	// Ingresses: rutas publicadas (host -> service), para el panel de servicios.
+	Ingresses []IngressInfo `json:"ingresses,omitempty"`
 }
 
 // ---- Acciones: la GUI ordena, el agente ejecuta ----
@@ -130,7 +145,37 @@ const (
 	ActionSync     = "sync"     // forzar sincronización de un proyecto GitOps
 	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
 	ActionIssuer   = "issuer"   // crear un ClusterIssuer de cert-manager (TLS ACME)
+	ActionExpose   = "expose"   // publicar un servicio: crear su Ingress (host -> service)
 )
+
+// ExposeSpec describe cómo publicar un servicio del clúster: el agente crea un
+// Ingress "atlas-<service>" que enruta el host al Service indicado. Con TLS,
+// se anota con el ClusterIssuer para que cert-manager emita el certificado.
+type ExposeSpec struct {
+	Namespace    string `json:"namespace"`              // dónde vive el Service
+	Service      string `json:"service"`                // Service a publicar
+	Port         int    `json:"port"`                   // puerto del Service
+	Host         string `json:"host"`                   // dominio de entrada
+	IngressClass string `json:"ingressClass,omitempty"` // default: nginx
+	TLS          bool   `json:"tls,omitempty"`          // https con cert-manager
+	Issuer       string `json:"issuer,omitempty"`       // ClusterIssuer (default letsencrypt-production)
+}
+
+// IngressClassOr devuelve la clase de Ingress a usar (default "nginx").
+func (s ExposeSpec) IngressClassOr() string {
+	if s.IngressClass != "" {
+		return s.IngressClass
+	}
+	return "nginx"
+}
+
+// IssuerOr devuelve el ClusterIssuer a usar con TLS (default letsencrypt-production).
+func (s ExposeSpec) IssuerOr() string {
+	if s.Issuer != "" {
+		return s.Issuer
+	}
+	return "letsencrypt-production"
+}
 
 // Entornos ACME válidos para un ClusterIssuer. El servidor ACME se DERIVA del
 // entorno (nunca es una URL arbitraria de la GUI): así el catálogo de emisores es
@@ -191,6 +236,15 @@ type AddonParam struct {
 	Path    string `json:"path"`    // ruta en los values de Helm (p. ej. grafana.adminPassword)
 }
 
+// AddonAccess describe cómo llegar a la interfaz de un complemento instalado:
+// el Service que la sirve y su puerto. El panel de servicios lo usa para
+// PUBLICARLA (crear un Ingress) y abrirla desde Atlas.
+type AddonAccess struct {
+	Service string `json:"service"` // Service de la UI (en el ns del complemento)
+	Port    int    `json:"port"`
+	Hint    string `json:"hint,omitempty"` // cómo entrar (usuario/contraseña inicial)
+}
+
 // AddonInfo describe un complemento del catálogo (metadatos para la GUI y la
 // detección de "instalado"). Las URLs de manifiesto viven en el agente.
 type AddonInfo struct {
@@ -201,6 +255,7 @@ type AddonInfo struct {
 	Namespace      string       `json:"namespace"`
 	DetectWorkload string       `json:"detectWorkload"`   // carga cuya presencia indica instalado
 	Params         []AddonParam `json:"params,omitempty"` // valores editables al instalar
+	Access         *AddonAccess `json:"access,omitempty"` // UI del complemento (si tiene)
 }
 
 // AddonParams devuelve los parámetros editables de un complemento (o nil).
@@ -218,7 +273,9 @@ func AddonParams(key string) []AddonParam {
 func Addons() []AddonInfo {
 	return []AddonInfo{
 		{Key: "argocd", Name: "Argo CD", Category: "gitops", Namespace: "argocd",
-			DetectWorkload: "argocd-server", Description: "Despliegue continuo (GitOps)"},
+			DetectWorkload: "argocd-server", Description: "Despliegue continuo (GitOps)",
+			Access: &AddonAccess{Service: "argocd-server", Port: 80,
+				Hint: "usuario admin; contraseña inicial: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"}},
 		{Key: "kyverno", Name: "Kyverno", Category: "seguridad", Namespace: "kyverno",
 			DetectWorkload: "kyverno-admission-controller", Description: "Políticas de admisión y seguridad"},
 		{Key: "falco", Name: "Falco", Category: "seguridad", Namespace: "falco",
@@ -233,6 +290,8 @@ func Addons() []AddonInfo {
 			DetectWorkload: "metrics-server", Description: "Métricas de CPU/memoria (base de monitoreo)"},
 		{Key: "kube-prometheus-stack", Name: "Prometheus + Grafana", Category: "monitoreo", Namespace: "monitoring",
 			DetectWorkload: "grafana", Description: "Monitoreo completo: Prometheus, Grafana y Alertmanager",
+			Access: &AddonAccess{Service: "kube-prometheus-stack-grafana", Port: 80,
+				Hint: "usuario admin; contraseña: la elegida al instalar (o prom-operator por defecto)"},
 			Params: []AddonParam{
 				{Key: "grafanaPassword", Label: "Contraseña de Grafana (admin)", Type: "password",
 					Default: "", Path: "grafana.adminPassword"},
@@ -262,6 +321,7 @@ type ActionRequest struct {
 	Values       map[string]string `json:"values,omitempty"` // valores del complemento (solo install)
 	App          *AppSpec          `json:"app,omitempty"`    // proyecto a registrar (solo addapp)
 	Issuer       *IssuerSpec       `json:"issuer,omitempty"` // emisor TLS a crear (solo issuer)
+	Expose       *ExposeSpec       `json:"expose,omitempty"` // servicio a publicar (solo expose)
 }
 
 // Action es una orden con su estado, tal como la ve el agente y la GUI.
@@ -276,6 +336,7 @@ type Action struct {
 	Values       map[string]string `json:"values,omitempty"`
 	App          *AppSpec          `json:"app,omitempty"`
 	Issuer       *IssuerSpec       `json:"issuer,omitempty"`
+	Expose       *ExposeSpec       `json:"expose,omitempty"`
 	Status       string            `json:"status"`
 	Error        string            `json:"error,omitempty"`
 	RequestedBy  string            `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)

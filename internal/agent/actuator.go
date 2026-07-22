@@ -178,6 +178,8 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.addApp(ctx, act.App)
 	case api.ActionIssuer:
 		err = a.createIssuer(ctx, act.Issuer)
+	case api.ActionExpose:
+		err = a.expose(ctx, act.Expose)
 	case api.ActionSync:
 		err = a.syncApp(ctx, act.App)
 	case api.ActionRollback:
@@ -381,6 +383,65 @@ func (a *KubeActuator) createIssuer(ctx context.Context, spec *api.IssuerSpec) e
 	}}
 	// ClusterIssuer es cluster-scoped; applyOne lo detecta por el RESTMapping.
 	return a.applyOne(ctx, issuer, "")
+}
+
+// expose publica un servicio: crea (o actualiza) el Ingress "atlas-<service>"
+// que enruta el host al Service indicado. Con TLS, lo anota con el ClusterIssuer
+// para que cert-manager emita el certificado del host automáticamente.
+func (a *KubeActuator) expose(ctx context.Context, spec *api.ExposeSpec) error {
+	if spec == nil {
+		return fmt.Errorf("falta la definición del servicio a publicar")
+	}
+	// El Service debe existir: mejor un error claro ahora que un 503 después.
+	if _, err := a.client.CoreV1().Services(spec.Namespace).Get(ctx, spec.Service, metav1.GetOptions{}); err != nil {
+		return fmt.Errorf("el servicio %s/%s no existe: %w", spec.Namespace, spec.Service, err)
+	}
+	name := "atlas-" + spec.Service
+	meta := map[string]interface{}{
+		"name":      name,
+		"namespace": spec.Namespace,
+		"labels":    map[string]interface{}{"app.kubernetes.io/managed-by": "atlas"},
+	}
+	ingSpec := map[string]interface{}{
+		"ingressClassName": spec.IngressClassOr(),
+		"rules": []interface{}{
+			map[string]interface{}{
+				"host": spec.Host,
+				"http": map[string]interface{}{
+					"paths": []interface{}{
+						map[string]interface{}{
+							"path":     "/",
+							"pathType": "Prefix",
+							"backend": map[string]interface{}{
+								"service": map[string]interface{}{
+									"name": spec.Service,
+									"port": map[string]interface{}{"number": int64(spec.Port)},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if spec.TLS {
+		meta["annotations"] = map[string]interface{}{
+			"cert-manager.io/cluster-issuer": spec.IssuerOr(),
+		}
+		ingSpec["tls"] = []interface{}{
+			map[string]interface{}{
+				"hosts":      []interface{}{spec.Host},
+				"secretName": name + "-tls",
+			},
+		}
+	}
+	ing := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "networking.k8s.io/v1",
+		"kind":       "Ingress",
+		"metadata":   meta,
+		"spec":       ingSpec,
+	}}
+	return a.applyOne(ctx, ing, spec.Namespace)
 }
 
 // syncApp fuerza una sincronización del proyecto (Application) a su revisión

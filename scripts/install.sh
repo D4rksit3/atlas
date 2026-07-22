@@ -100,7 +100,14 @@ sed -E "s#^( *)image: .*atlas-controlplane:.*#\1image: $CP_IMG#" \
       { print }' \
   | emit
 
-sed -E "s#^( *)image: .*atlas-web:.*#\1image: $WEB_IMG#" "$ROOT/deploy/web.yaml" | emit
+# GUI. Con OIDC, la CSP debe permitir hablar con el IdP: se añade su ORIGEN al
+# connect-src de la línea marcada # ATLAS_CSP del ConfigMap de nginx.
+web_sed="s#^( *)image: .*atlas-web:.*#\1image: $WEB_IMG#"
+if [ -n "$OIDC_ISSUER" ]; then
+  OIDC_ORIGIN=$(printf '%s' "$OIDC_ISSUER" | sed -E 's#^(https?://[^/]+).*#\1#')
+  web_sed="$web_sed; /# ATLAS_CSP/ s#connect-src 'self';#connect-src 'self' $OIDC_ORIGIN;#"
+fi
+sed -E "$web_sed" "$ROOT/deploy/web.yaml" | emit
 
 # Aislamiento de red del namespace (default-deny + permisos mínimos).
 emit < "$ROOT/deploy/networkpolicy.yaml"

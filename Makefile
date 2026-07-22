@@ -111,6 +111,9 @@ test-install: ## E2E: instalador (dominio + local/público) y enrutado por Ingre
 test-login: ## E2E: login local integrado (API cerrada sin sesión, auditoría, rate limit)
 	./scripts/test-login.sh
 
+test-services: ## E2E: panel de servicios — login en clúster + publicar/abrir un servicio (k3d)
+	./scripts/test-services.sh
+
 certs: ## Genera una PKI de desarrollo en ./certs (CA + servidor + un agente)
 	go run ./cmd/atlas-certs bundle --out certs --hosts localhost,127.0.0.1
 

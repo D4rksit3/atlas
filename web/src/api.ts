@@ -64,6 +64,13 @@ export interface AddonParam {
   path: string;
 }
 
+// AddonAccess: cómo llegar a la UI de un complemento (service + puerto).
+export interface AddonAccess {
+  service: string;
+  port: number;
+  hint?: string; // cómo entrar (credenciales iniciales)
+}
+
 // AddonInfo: un complemento del catálogo instalable desde la GUI.
 export interface AddonInfo {
   key: string;
@@ -73,6 +80,7 @@ export interface AddonInfo {
   namespace: string;
   detectWorkload: string;
   params?: AddonParam[] | null;
+  access?: AddonAccess | null;
 }
 
 /** Catálogo de complementos instalables. */
@@ -97,11 +105,24 @@ export interface IssuerSpec {
   ingressClass?: string; // clase de Ingress para el reto HTTP-01 (default nginx)
 }
 
+// IngressInfo: una ruta publicada (host -> service) vista por el agente.
+export interface IngressInfo {
+  name: string;
+  namespace: string;
+  class?: string;
+  host: string;
+  path?: string;
+  service: string;
+  port: number;
+  tls: boolean;
+}
+
 export interface Snapshot {
   nodes: Node[] | null;
   workloads: Workload[] | null;
   links: Link[] | null;
   apps?: App[] | null;
+  ingresses?: IngressInfo[] | null;
 }
 
 export interface ClusterView {
@@ -135,8 +156,20 @@ export type ActionKind =
   | "addapp"
   | "sync"
   | "rollback"
-  | "issuer";
+  | "issuer"
+  | "expose";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
+
+// ExposeSpec: publicar un servicio (crear su Ingress host -> service).
+export interface ExposeSpec {
+  namespace: string;
+  service: string;
+  port: number;
+  host: string;
+  ingressClass?: string; // default nginx
+  tls?: boolean; // https con cert-manager
+  issuer?: string; // ClusterIssuer (default letsencrypt-production)
+}
 
 export interface ActionRequest {
   kind: ActionKind;
@@ -148,6 +181,7 @@ export interface ActionRequest {
   values?: Record<string, string>; // valores del complemento (solo install)
   app?: AppSpec; // solo para addapp
   issuer?: IssuerSpec; // solo para issuer (crear emisor TLS)
+  expose?: ExposeSpec; // solo para expose (publicar un servicio)
 }
 
 export interface Action {

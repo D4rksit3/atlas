@@ -21,7 +21,8 @@ entornos que administrar.
 | Revocación de certs | ✅ **CRL firmada por la CA** (`atlas-certs revoke` + `--tls-crl`), **recargada en caliente** — el agente revocado queda fuera en el siguiente handshake sin reiniciar | OCSP/distribución automática de la CRL a los agentes |
 | Aislamiento de red | ✅ **NetworkPolicy** default-deny de ingress en `atlas-system` | acotar egress (Postgres/OIDC/API); requiere CNI que aplique NetworkPolicy |
 | Transporte | ✅ **TLS 1.3** (mTLS) cuando se configuran certs | forzarlo en producción (hoy HTTP si no hay certs) |
-| AuthN/AuthZ de la GUI | ✅ **OIDC (PKCE) + RBAC** (viewer/operator) | grupos anidados, sesión/refresh, auditoría |
+| AuthN/AuthZ de la GUI | ✅ **Login local integrado** (bcrypt + sesiones HMAC con caducidad; el instalador SIEMPRE lo activa) y/o **OIDC (PKCE)**, con **RBAC** (viewer/operator) | grupos anidados, refresh de sesión |
+| Fuerza bruta del login | ✅ rate limit estricto por IP en `/v1/login` + **cada intento auditado** con su IP | bloqueo progresivo por cuenta |
 | Endpoints de acción (escalar/reiniciar) | ✅ protegidos: exigen rol **operator** | — |
 | Auditoría | ✅ **rastro de quién hizo qué** (solicitó/ejecutó, con resultado) | exportar a un SIEM; inmutabilidad |
 | Instalar complementos (ArgoCD) | ⚠️ **opt-in**: catálogo cerrado + versión fijada, pero RBAC amplio | ClusterRole a medida por complemento (no cluster-admin) |
@@ -29,7 +30,8 @@ entornos que administrar.
 | Límite de tamaño de cuerpo | ✅ 1 MiB | — |
 | Timeouts del servidor | ✅ read/write | — |
 | Rate limiting | ✅ **por IP** (`--rate-limit`, 20/s por defecto) | ajustar tras un proxy de confianza |
-| Cabeceras de seguridad | ✅ nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS (bajo TLS) | CSP en la GUI |
+| Cabeceras de seguridad | ✅ nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS (bajo TLS) | — |
+| CSP de la GUI | ✅ `script-src 'self'` (sin inline), `frame-ancestors 'none'`, `connect-src` acotado (el instalador añade el IdP si hay OIDC) | quitar `style-src 'unsafe-inline'` (lo exige React Flow) |
 | Contenedores | ✅ distroless, no-root | escaneo de imágenes en CI (Trivy) |
 | Secretos | ❌ no hay gestión | integrar con Secret manager / SOPS |
 
@@ -143,10 +145,15 @@ kubectl apply -f deploy/networkpolicy-cilium.yaml   # opcional, con Cilium: fija
 
 1. ✅ **mTLS agente↔control plane** — hecho (ver arriba). El token sigue como
    defensa en profundidad, pero la identidad fuerte es el certificado.
-2. ✅ **AuthN de la GUI + proteger las acciones** — hecho: OIDC (Authorization
-   Code + PKCE) + RBAC (viewer/operator). Los endpoints de acción exigen rol
-   `operator`. Configura `--oidc-issuer/--oidc-client-id/--rbac-operators`.
-   Verificado E2E con `make test-oidc`.
+2. ✅ **AuthN de la GUI + proteger las acciones** — hecho, con dos métodos que
+   conviven: **login local integrado** (usuario/contraseña de Atlas: bcrypt +
+   sesiones HMAC con caducidad; el instalador genera la contraseña y la GUI
+   nunca queda abierta — `make test-login`) y **OIDC** (Authorization Code +
+   PKCE) + RBAC (viewer/operator). Los endpoints de acción exigen rol
+   `operator`. `/v1/login` lleva rate limit estricto por IP y cada intento
+   queda auditado. Configura `--admin-password` (o el Secret `atlas-auth`) y/o
+   `--oidc-issuer/--oidc-client-id/--rbac-operators`. Verificado E2E con
+   `make test-login` y `make test-oidc`.
 3. ✅ **Registro de auditoría** — hecho: cada acción deja rastro de quién la
    solicitó y su resultado (`GET /v1/audit`, panel "Actividad" en la GUI).
    Verificado con `make test-audit`. Pendiente: refresh de sesión, grupos
@@ -159,7 +166,11 @@ kubectl apply -f deploy/networkpolicy-cilium.yaml   # opcional, con Cilium: fija
    inmediata por CRL** (`atlas-certs revoke` + `--tls-crl`, recarga en caliente,
    `make test-revocation`). Pendiente: OCSP.
 6. ✅ **Aislamiento de red** — hecho: `deploy/networkpolicy.yaml` (default-deny
-   de ingress). Pendiente: acotar egress.
+   de ingress; el instalador lo aplica solo). Pendiente: acotar egress.
+7. ✅ **CSP de la GUI** — hecho: `Content-Security-Policy` servida por nginx
+   (`web/nginx.conf` y el ConfigMap de `deploy/web.yaml`): sin scripts inline,
+   sin iframes (`frame-ancestors 'none'`), `connect-src` limitado al propio
+   origen (+ el IdP OIDC si el instalador lo configura).
 
 ## Reportar una vulnerabilidad
 

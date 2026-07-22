@@ -101,6 +101,11 @@ func summarize(a api.Action) string {
 			return fmt.Sprintf("revertir proyecto %q a la versión anterior", a.App.Name)
 		}
 		return "revertir proyecto"
+	case api.ActionExpose:
+		if a.Expose != nil {
+			return fmt.Sprintf("publicar el servicio %s/%s en %s", a.Expose.Namespace, a.Expose.Service, a.Expose.Host)
+		}
+		return "publicar un servicio"
 	default:
 		return a.Kind + " " + a.Namespace + "/" + a.Workload
 	}
@@ -149,6 +154,18 @@ func validActionRequest(req api.ActionRequest) error {
 			return errors.New("sync/rollback requieren app.name")
 		}
 		return nil
+	case api.ActionExpose:
+		e := req.Expose
+		if e == nil || e.Namespace == "" || e.Service == "" || e.Host == "" {
+			return errors.New("expose requiere expose.namespace, expose.service y expose.host")
+		}
+		if e.Port < 1 || e.Port > 65535 {
+			return errors.New("expose.port fuera de rango (1..65535)")
+		}
+		if !validHost(e.Host) {
+			return errors.New("expose.host no es un dominio válido")
+		}
+		return nil
 	case api.ActionScale, api.ActionRestart:
 		if req.Namespace == "" || req.Workload == "" {
 			return errors.New("namespace y workload son obligatorios")
@@ -161,8 +178,29 @@ func validActionRequest(req api.ActionRequest) error {
 		}
 		return nil
 	default:
-		return errors.New("kind no soportado (usa: scale | restart | install)")
+		return errors.New("kind no soportado (usa: scale | restart | install | addapp | sync | rollback | issuer | expose)")
 	}
+}
+
+// validHost acepta nombres DNS razonables (letras/dígitos/guiones por etiqueta,
+// separadas por puntos). Corta hosts vacíos, con espacios o con caracteres raros.
+func validHost(h string) bool {
+	if len(h) == 0 || len(h) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(h, ".") {
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		for i, c := range label {
+			ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+				c == '-' && i > 0 && i < len(label)-1
+			if !ok {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // loginAuditEntry construye la entrada de auditoría de un intento de login.

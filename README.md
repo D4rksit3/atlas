@@ -82,22 +82,31 @@ GUI ─POST /v1/clusters/{id}/actions─► Control Plane ─(en el latido)─�
 Verificado E2E (`make test-actions`): escalar y reiniciar cambian el clúster de
 verdad y la acción llega a estado `done`.
 
-### Autenticación (OIDC + RBAC)
+### Autenticación (login integrado y/u OIDC, con RBAC)
 
-La GUI usa **OIDC** (Authorization Code + PKCE): inicias sesión contra tu IdP y el
-control plane verifica el token (firma vía JWKS, `iss`/`aud`/`exp`). El **RBAC** es
-por rol: cualquier usuario autenticado es **viewer** (lee el mapa); solo los de tu
-lista de operadores pueden **operar** (escalar/reiniciar).
+Atlas trae **login propio** (como ArgoCD o Grafana): usuario/contraseña con
+bcrypt y sesiones firmadas (HMAC) con caducidad. **El instalador lo activa
+siempre** — genera la contraseña del `admin`, la guarda en el Secret
+`atlas-auth` y la muestra una sola vez — así la GUI **nunca queda abierta**.
 
 ```bash
+controlplane --admin-password 'mi-secreto'          # login local
+# y/o SSO con tu IdP:
 controlplane --oidc-issuer https://TU-IDP --oidc-client-id atlas-gui \
   --rbac-operators "ops@tu-dominio.com,platform-team"
 ```
 
-Sin `--oidc-issuer`, la auth queda **deshabilitada** (solo desarrollo). Solo se
-protegen los endpoints de la GUI; los del agente ya usan **mTLS**. Verificado E2E
-(`make test-oidc`, con un IdP de prueba): sin token → 401; viewer → lee pero no
-opera (403); operator → opera (202); y el login PKCE completo en el navegador.
+Con **OIDC** (Authorization Code + PKCE) el control plane verifica el token
+(firma vía JWKS, `iss`/`aud`/`exp`). Ambos métodos conviven: la GUI muestra el
+formulario, el botón SSO, o los dos. El **RBAC** es por rol: autenticado =
+**viewer** (lee el mapa); operadores (y el admin local) pueden **operar**.
+`/v1/login` lleva rate limit estricto por IP y cada intento queda auditado.
+
+Sin ninguno de los dos, la auth queda **deshabilitada** (solo desarrollo). Solo
+se protegen los endpoints de la GUI; los del agente ya usan **mTLS**. Verificado
+E2E: `make test-login` (401 sin sesión, token manipulado rechazado, 429 de
+fuerza bruta) y `make test-oidc` (viewer 403 al operar; operator 202; PKCE
+completo en navegador).
 
 ### Auditoría
 
@@ -156,6 +165,19 @@ agente solo aplica valores en **paths de Helm vetados** por el catálogo
 En un complemento **ya instalado** con parámetros, el botón *editar* reabre el
 formulario y hace `helm upgrade` conservando el resto de valores (`ReuseValues`).
 Verificado con `make test-upgrade`.
+
+### El panel Servicios: lo instalado, adoptado y accesible
+
+Todo lo que se instala **se adopta en el panel "Servicios"** de la barra del
+mapa: cada complemento con interfaz (Grafana, Argo CD…) aparece con su estado y,
+si aún no tiene URL, un botón **Publicar** — eliges dominio, clase de ingress y
+TLS opcional, y el agente crea el Ingress `atlas-<service>` (acción `expose`,
+auditada; el Service debe existir y el host se valida). En cuanto el agente ve
+el Ingress, la fila muestra la URL y el botón **Abrir ↗** — con la pista de
+credenciales iniciales de cada servicio. Las rutas publicadas **por fuera de
+Atlas** también se adoptan: el agente lee todos los Ingress del clúster y el
+panel las lista igual. Verificado E2E con `make test-services` (publica un
+servicio real en k3d y comprueba que responde por su dominio).
 
 ### Publicar servicios con TLS (cert-manager)
 

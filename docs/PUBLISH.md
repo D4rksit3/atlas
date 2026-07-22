@@ -14,8 +14,10 @@ credenciales.
   --oidc-issuer https://TU-IDP --oidc-client-id atlas-gui --operators ops@seguricloud.com
 ```
 
-El instalador **pregunta el dominio y si el despliegue es `local` o `public`** y
-deja todo coherente con esa elección:
+El instalador **pregunta el dominio y si el despliegue es `local` o `public`**,
+**crea el login de la GUI** (usuario `admin`, contraseña generada que muestra
+una sola vez y guarda en el Secret `atlas-auth`), aplica las **NetworkPolicies**
+del namespace y deja todo coherente con esa elección:
 
 | | **local** | **public** |
 |---|---|---|
@@ -52,9 +54,9 @@ kubectl -n atlas-system set env deploy/atlas-controlplane \
 ```
 
 En el proxy externo: un host para `atlas.seguricloud.com` → `IP-privada:8880`
-(HTTP), con su certificado Let's Encrypt y **Force SSL**. Mientras el login OIDC
-no esté configurado, protege el host con una lista de acceso (usuario/contraseña
-del proxy): sin OIDC, quien entra puede OPERAR el clúster.
+(HTTP), con su certificado Let's Encrypt y **Force SSL**. El instalador crea el
+**login local** (usuario `admin` + contraseña generada que muestra UNA vez), así
+que la GUI ya no queda abierta aunque no configures OIDC.
 
 ## Resumen
 
@@ -137,7 +139,9 @@ Espera a que cert-manager emita el certificado:
 kubectl -n atlas-system get certificate atlas-web-tls -w
 ```
 
-Abre **https://atlas.seguricloud.com** → login OIDC → el mapa.
+Abre **https://atlas.seguricloud.com** → inicia sesión (login local `admin` o
+SSO/OIDC si lo configuraste) → el mapa. Desde el panel **Servicios** puedes
+publicar y abrir las UIs de lo instalado (Grafana, Argo CD…).
 
 ## 6) Endurecimiento (ya incluido / recomendado)
 

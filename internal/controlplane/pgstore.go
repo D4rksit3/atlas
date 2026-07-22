@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS actions (
     addon         TEXT        NOT NULL DEFAULT '',
     app_spec      JSONB,
     issuer_spec   JSONB,
+    expose_spec   JSONB,
     vals          JSONB,
     status        TEXT        NOT NULL,
     error         TEXT        NOT NULL DEFAULT '',
@@ -48,8 +49,9 @@ CREATE TABLE IF NOT EXISTS actions (
     created_at    TIMESTAMPTZ NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL
 );
--- Migración idempotente para DBs creadas antes de la acción 'issuer'.
+-- Migraciones idempotentes para DBs creadas antes de 'issuer' / 'expose'.
 ALTER TABLE actions ADD COLUMN IF NOT EXISTS issuer_spec JSONB;
+ALTER TABLE actions ADD COLUMN IF NOT EXISTS expose_spec JSONB;
 CREATE INDEX IF NOT EXISTS actions_cluster_status ON actions(cluster_id, status);
 CREATE TABLE IF NOT EXISTS audit (
     id         TEXT PRIMARY KEY,
@@ -202,9 +204,10 @@ func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, actor s
 		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
 		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
 		Addon: req.Addon, Values: req.Values, App: req.App, Issuer: req.Issuer,
+		Expose: req.Expose,
 		Status: api.ActionPending, RequestedBy: actor, CreatedAt: now, UpdatedAt: now,
 	}
-	var appJSON, issuerJSON, valsJSON interface{}
+	var appJSON, issuerJSON, exposeJSON, valsJSON interface{}
 	if a.App != nil {
 		b, _ := json.Marshal(a.App)
 		appJSON = string(b)
@@ -213,14 +216,18 @@ func (s *PgStore) EnqueueAction(clusterID string, req api.ActionRequest, actor s
 		b, _ := json.Marshal(a.Issuer)
 		issuerJSON = string(b)
 	}
+	if a.Expose != nil {
+		b, _ := json.Marshal(a.Expose)
+		exposeJSON = string(b)
+	}
 	if len(a.Values) > 0 {
 		b, _ := json.Marshal(a.Values)
 		valsJSON = string(b)
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO actions (id, cluster_id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, vals, status, requested_by, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)`,
-		a.ID, clusterID, a.Kind, a.Namespace, a.Workload, a.WorkloadKind, a.Replicas, a.Addon, appJSON, issuerJSON, valsJSON, a.Status, actor, now)
+		INSERT INTO actions (id, cluster_id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, expose_spec, vals, status, requested_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)`,
+		a.ID, clusterID, a.Kind, a.Namespace, a.Workload, a.WorkloadKind, a.Replicas, a.Addon, appJSON, issuerJSON, exposeJSON, valsJSON, a.Status, actor, now)
 	if err != nil {
 		return api.Action{}, fmt.Errorf("encolando acción: %w", err)
 	}
@@ -250,7 +257,7 @@ func (s *PgStore) TakeActions(clusterID string, now time.Time) ([]api.Action, er
 	rows, err := s.pool.Query(ctx, `
 		UPDATE actions SET status = $2, updated_at = $3
 		WHERE cluster_id = $1 AND status = $4
-		RETURNING id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, vals, status, error, created_at, updated_at`,
+		RETURNING id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, expose_spec, vals, status, error, created_at, updated_at`,
 		clusterID, api.ActionDispatched, now, api.ActionPending)
 	if err != nil {
 		return nil, fmt.Errorf("recogiendo acciones: %w", err)
@@ -373,7 +380,7 @@ func (s *PgStore) ListActions(clusterID string) ([]api.Action, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, vals, status, error, created_at, updated_at
+		SELECT id, kind, namespace, workload, workload_kind, replicas, addon, app_spec, issuer_spec, expose_spec, vals, status, error, created_at, updated_at
 		FROM actions WHERE cluster_id = $1 ORDER BY created_at`, clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("listando acciones: %w", err)
@@ -386,9 +393,9 @@ func scanActions(rows pgx.Rows) ([]api.Action, error) {
 	var out []api.Action
 	for rows.Next() {
 		var a api.Action
-		var appJSON, issuerJSON, valsJSON []byte
+		var appJSON, issuerJSON, exposeJSON, valsJSON []byte
 		if err := rows.Scan(&a.ID, &a.Kind, &a.Namespace, &a.Workload, &a.WorkloadKind,
-			&a.Replicas, &a.Addon, &appJSON, &issuerJSON, &valsJSON, &a.Status, &a.Error, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			&a.Replicas, &a.Addon, &appJSON, &issuerJSON, &exposeJSON, &valsJSON, &a.Status, &a.Error, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("escaneando acción: %w", err)
 		}
 		if len(appJSON) > 0 {
@@ -396,6 +403,9 @@ func scanActions(rows pgx.Rows) ([]api.Action, error) {
 		}
 		if len(issuerJSON) > 0 {
 			_ = json.Unmarshal(issuerJSON, &a.Issuer)
+		}
+		if len(exposeJSON) > 0 {
+			_ = json.Unmarshal(exposeJSON, &a.Expose)
 		}
 		if len(valsJSON) > 0 {
 			_ = json.Unmarshal(valsJSON, &a.Values)

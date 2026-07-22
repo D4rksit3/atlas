@@ -146,6 +146,10 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 	// Best-effort: si el CRD no existe o no hay permiso, seguimos sin ellos.
 	snap.Apps = c.collectApps(ctx)
 
+	// Rutas publicadas (Ingress): con esto el panel de servicios sabe la URL
+	// real de cada servicio. Best-effort: sin permiso, seguimos sin ellas.
+	snap.Ingresses = c.collectIngresses(ctx)
+
 	// Las conexiones (Links) reales entre servicios salen de Hubble (colector aparte).
 	return snap, nil
 }
@@ -178,6 +182,59 @@ func (c *KubeCollector) collectApps(ctx context.Context) []api.App {
 	}
 	sort.Slice(apps, func(a, b int) bool { return apps[a].Name < apps[b].Name })
 	return apps
+}
+
+// collectIngresses lista los Ingress del clúster y los aplana a (host -> service):
+// una entrada por regla/ruta con backend de Service. Devuelve nil si no hay o no
+// se puede (sin permiso): no es un fallo.
+func (c *KubeCollector) collectIngresses(ctx context.Context) []api.IngressInfo {
+	list, err := c.client.NetworkingV1().Ingresses(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	var out []api.IngressInfo
+	for i := range list.Items {
+		ing := &list.Items[i]
+		class := ""
+		if ing.Spec.IngressClassName != nil {
+			class = *ing.Spec.IngressClassName
+		}
+		// Hosts con TLS declarado (para saber si la URL es https).
+		tlsHosts := make(map[string]bool)
+		for _, t := range ing.Spec.TLS {
+			for _, h := range t.Hosts {
+				tlsHosts[h] = true
+			}
+		}
+		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP == nil {
+				continue
+			}
+			for _, p := range rule.HTTP.Paths {
+				svc := p.Backend.Service
+				if svc == nil {
+					continue
+				}
+				out = append(out, api.IngressInfo{
+					Name:      ing.Name,
+					Namespace: ing.Namespace,
+					Class:     class,
+					Host:      rule.Host,
+					Path:      p.Path,
+					Service:   svc.Name,
+					Port:      int(svc.Port.Number),
+					TLS:       tlsHosts[rule.Host],
+				})
+			}
+		}
+	}
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Host != out[b].Host {
+			return out[a].Host < out[b].Host
+		}
+		return out[a].Service < out[b].Service
+	})
+	return out
 }
 
 // appResources extrae el árbol de recursos de una Application (status.resources).

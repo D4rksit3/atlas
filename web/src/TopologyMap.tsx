@@ -32,6 +32,7 @@ import { providerColor, providerLabel, type IconKey } from "./icons";
 import { layout, sizeFor, type LayoutEdge, type NodeSize } from "./layout";
 import { Inspector } from "./Inspector";
 import { AuditPanel } from "./AuditPanel";
+import { ServicesPanel } from "./ServicesPanel";
 import { NodeGroup, type NodeGroupItem } from "./NodeGroup";
 
 const nodeTypes = { service: ServiceNode, nodegroup: NodeGroup };
@@ -369,6 +370,7 @@ export function TopologyMap() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
+  const [showServices, setShowServices] = useState(false);
   const [view, setView] = useState<ViewMode>("flow");
   const instance = useRef<ReactFlowInstance | null>(null);
 
@@ -458,8 +460,20 @@ export function TopologyMap() {
           </button>
         </div>
         <button
+          className={`bar-btn${showServices ? " active" : ""}`}
+          onClick={() => {
+            setShowServices((v) => !v);
+            setShowAudit(false);
+          }}
+        >
+          Servicios
+        </button>
+        <button
           className={`bar-btn${showAudit ? " active" : ""}`}
-          onClick={() => setShowAudit((v) => !v)}
+          onClick={() => {
+            setShowAudit((v) => !v);
+            setShowServices(false);
+          }}
         >
           Actividad
         </button>
@@ -491,6 +505,7 @@ export function TopologyMap() {
           />
         )}
         {showAudit && <AuditPanel onClose={() => setShowAudit(false)} />}
+        {showServices && <ServicesPanel onClose={() => setShowServices(false)} />}
       </div>
     </div>
   );

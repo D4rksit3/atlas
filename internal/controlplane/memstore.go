@@ -123,6 +123,7 @@ func (s *MemStore) EnqueueAction(clusterID string, req api.ActionRequest, actor 
 		ID: newActionID(), Kind: req.Kind, Namespace: req.Namespace,
 		Workload: req.Workload, WorkloadKind: req.WorkloadKind, Replicas: req.Replicas,
 		Addon: req.Addon, Values: req.Values, App: req.App, Issuer: req.Issuer,
+		Expose: req.Expose,
 		Status: api.ActionPending, RequestedBy: actor, CreatedAt: now, UpdatedAt: now,
 	}
 	cs.actions = append(cs.actions, a)
