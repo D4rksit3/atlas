@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
@@ -107,4 +108,23 @@ func (g *restGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	// Helm lo usa sobre todo para resolver el namespace por defecto.
 	overrides := &clientcmd.ConfigOverrides{Context: clientcmdapi.Context{Namespace: g.namespace}}
 	return clientcmd.NewDefaultClientConfig(*clientcmdapi.NewConfig(), overrides)
+}
+
+// uninstallHelm desinstala un release de Helm del catálogo. Si el release no
+// existe, no es un error (idempotente).
+func (a *KubeActuator) uninstallHelm(namespace string, c *helmChart) error {
+	getter := &restGetter{cfg: a.cfg, namespace: namespace}
+	cfg := new(action.Configuration)
+	if err := cfg.Init(getter, namespace, "secret", func(string, ...interface{}) {}); err != nil {
+		return fmt.Errorf("inicializando Helm: %w", err)
+	}
+	un := action.NewUninstall(cfg)
+	un.Timeout = 5 * time.Minute
+	if _, err := un.Run(c.release); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil // ya no estaba: objetivo cumplido
+		}
+		return fmt.Errorf("desinstalando %s: %w", c.release, err)
+	}
+	return nil
 }

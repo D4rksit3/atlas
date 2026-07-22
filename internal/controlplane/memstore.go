@@ -177,6 +177,7 @@ func (s *MemStore) RecordResults(clusterID string, results []api.ActionResult, n
 				cs.actions[i].Error = r.Error
 				outcome = api.ActionError
 			}
+			cs.actions[i].Output = r.Output
 			cs.actions[i].UpdatedAt = now
 			s.appendAudit(api.AuditEntry{
 				ID: newActionID(), Time: now, Actor: cs.actions[i].RequestedBy,

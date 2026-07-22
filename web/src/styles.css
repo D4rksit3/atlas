@@ -269,6 +269,24 @@ main { flex: 1; min-height: 0; padding: 16px; }
 }
 .net-empty { color: var(--faint); font-size: 11.5px; padding: 8px; text-align: center; }
 
+/* consumo vivo (metrics-server) en el Inspector */
+.insp-usage {
+  margin-top: -4px; padding: 7px 10px; font-size: 12px; color: var(--muted);
+  background: #0f1826; border: 1px solid var(--line); border-radius: 8px;
+}
+.insp-usage b { color: var(--text); font-variant-numeric: tabular-nums; }
+.insp-usage-src { color: var(--faint); font-size: 11px; }
+
+/* salida de diagnóstico (logs / eventos) del Inspector */
+.diag-out-wrap { position: relative; }
+.diag-out {
+  max-height: 260px; overflow: auto; margin: 0; padding: 10px 12px;
+  background: #0a111c; border: 1px solid var(--line); border-radius: 9px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; line-height: 1.5;
+  color: #c8d2dd; white-space: pre-wrap; word-break: break-all;
+}
+.diag-close { position: absolute; top: 4px; right: 6px; }
+
 /* tabla de pods e IPs del Inspector */
 .pods-table { display: flex; flex-direction: column; gap: 2px; }
 .pods-row {
@@ -334,6 +352,15 @@ main { flex: 1; min-height: 0; padding: 16px; }
 .svcadmin-pub { margin: 0; }
 .svcadmin-hint { word-break: break-all; }
 .svcadmin-warn { color: #F0932B; margin-top: 8px; }
+.svcadmin-danger-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 14px 0; font-size: 12px; color: var(--muted);
+}
+.svcadmin-danger-confirm { padding: 10px; border: 1px solid #7c3a3a; border-radius: 9px; background: #251418; }
+.btn.danger { background: #b23b3b; border-color: #b23b3b; color: #fff; }
+.btn.danger:hover:not(:disabled) { background: #c74848; }
+.btn.danger-ghost { color: #ff9b9b; border-color: #7c3a3a; background: transparent; }
+.btn.danger-ghost:hover:not(:disabled) { background: #2a171b; }
 .svcadmin-main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #0b121d; }
 .svcadmin-frame { flex: 1; border: 0; width: 100%; background: #fff; }
 .svcadmin-framenote {

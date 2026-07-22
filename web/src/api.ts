@@ -16,11 +16,18 @@ export interface Node {
   name: string;
   role: "control-plane" | "worker" | string;
   ready: boolean;
+  usage?: Usage | null;
 }
 
 export interface Placement {
   node: string;
   pods: number;
+}
+
+// Usage: consumo vivo (metrics-server): millicores y MiB en uso.
+export interface Usage {
+  cpum: number;
+  memMi: number;
 }
 
 // PodInfo: un pod concreto con su IP real, nodo y fase.
@@ -38,6 +45,7 @@ export interface Workload {
   replicas: number;
   placement?: Placement[] | null;
   pods?: PodInfo[] | null;
+  usage?: Usage | null;
 }
 
 // ServiceInfo: un Service del clúster (el "cable" entre pods) con su ClusterIP,
@@ -182,7 +190,11 @@ export type ActionKind =
   | "sync"
   | "rollback"
   | "issuer"
-  | "expose";
+  | "expose"
+  | "uninstall"
+  | "unexpose"
+  | "logs"
+  | "events";
 export type ActionStatus = "pending" | "dispatched" | "done" | "error";
 
 // ExposeSpec: publicar un servicio (crear su Ingress host -> service).
@@ -216,6 +228,9 @@ export interface Action {
   workload: string;
   workloadKind: string;
   replicas: number;
+  addon?: string;
+  values?: Record<string, string>; // valores aplicados (passwords enmascaradas)
+  output?: string; // salida de logs/events
   status: ActionStatus;
   error?: string;
   createdAt: string;

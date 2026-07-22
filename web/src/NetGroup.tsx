@@ -33,12 +33,19 @@ export interface NetGroupData {
   onSelect: (sel: Selection) => void;
 }
 
-/** Altura estimada de la caja (para el layout de dagre). */
+/** Altura de la caja para el layout de dagre. Debe casar con el CSS real: si se
+ *  queda corta, las cajas se SOLAPAN en el mapa. Medidas: cabecera 45, padding
+ *  del cuerpo 14, cada bloque de service = 10 (borde+padding) + hosts×22 +
+ *  línea 24 + cargas×21, separación entre bloques 6, y un margen de seguridad. */
 export function netGroupHeight(d: NetGroupData): number {
-  let rows = 0;
-  for (const s of d.services) rows += 1 + s.hosts.length + s.workloads.length;
-  rows += d.orphans.length ? 1 + d.orphans.length : 0;
-  return 44 + Math.max(rows, 1) * 26 + 14;
+  const blocks: number[] = d.services.map(
+    (s) => 10 + s.hosts.length * 22 + 24 + s.workloads.length * 21,
+  );
+  if (d.orphans.length) blocks.push(10 + 24 + d.orphans.length * 21);
+  const body = blocks.length
+    ? blocks.reduce((a, b) => a + b, 0) + (blocks.length - 1) * 6
+    : 30; // "sin cargas"
+  return 45 + 14 + body + 10;
 }
 
 function WorkloadRow({ w, onSelect }: { w: NetWorkloadRef; onSelect: (s: Selection) => void }) {

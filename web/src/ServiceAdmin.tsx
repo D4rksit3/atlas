@@ -2,7 +2,7 @@
 // Atlas, sin salir a otra página. A la izquierda: estado y operación de sus
 // cargas, configuración (valores de Helm) y publicación. Al centro: la interfaz
 // del servicio EMBEBIDA (iframe de su URL publicada).
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   fetchActions,
   postAction,
@@ -59,11 +59,44 @@ export function ServiceAdmin({ target, onClose }: { target: AdminTarget; onClose
   const { cluster, addon, ingress } = target;
   const [fb, setFb] = useState<Feedback | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<"uninstall" | "unexpose" | null>(null);
   const [formVals, setFormVals] = useState<Record<string, string>>(() => {
     const defs: Record<string, string> = {};
     for (const p of addon?.params ?? []) defs[p.key] = p.default ?? "";
     return defs;
   });
+
+  // Lo configurado, configurado queda: precarga el formulario con los valores
+  // REALMENTE aplicados en la última instalación/actualización (del historial de
+  // acciones; las contraseñas llegan enmascaradas y se dejan vacías = conservar).
+  useEffect(() => {
+    if (!addon || (addon.params?.length ?? 0) === 0) return;
+    let alive = true;
+    (async () => {
+      try {
+        const acts = await fetchActions(cluster.clusterId);
+        const last = acts.find(
+          (a) => a.kind === "install" && a.addon === addon.key && a.status === "done" && a.values,
+        );
+        if (!alive || !last?.values) return;
+        setFormVals((cur) => {
+          const next = { ...cur };
+          for (const p of addon.params ?? []) {
+            const v = last.values![p.key];
+            if (v !== undefined && v !== "••••••") next[p.key] = v;
+            if (p.type === "password") next[p.key] = ""; // vacío = se conserva
+          }
+          return next;
+        });
+      } catch {
+        /* sin historial: se quedan los defaults */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cluster.clusterId, addon?.key]);
 
   const workloads = (cluster.snapshot?.workloads ?? []).filter(
     (w) => w.namespace === target.namespace,
@@ -171,7 +204,7 @@ export function ServiceAdmin({ target, onClose }: { target: AdminTarget; onClose
                   <input
                     type={p.type === "password" ? "password" : p.type === "int" ? "number" : "text"}
                     value={formVals[p.key] ?? ""}
-                    placeholder={p.default || "(por defecto)"}
+                    placeholder={p.type === "password" ? "(se conserva la actual)" : p.default || "(por defecto)"}
                     onChange={(e) => setFormVals((v) => ({ ...v, [p.key]: e.target.value }))}
                   />
                 </label>
@@ -207,6 +240,38 @@ export function ServiceAdmin({ target, onClose }: { target: AdminTarget; onClose
                   bloquea embeberlo. Publícalo con TLS para verlo aquí.
                 </div>
               )}
+              {ingress.name.startsWith("atlas-") && (
+                <div className="svcadmin-danger-row">
+                  {confirm === "unexpose" ? (
+                    <>
+                      <span>¿retirar {ingress.host}?</span>
+                      <button
+                        className="btn danger"
+                        disabled={busy}
+                        onClick={() => {
+                          setConfirm(null);
+                          run(`despublicando ${target.name}`, {
+                            kind: "unexpose",
+                            expose: {
+                              namespace: target.namespace,
+                              service: target.service!,
+                              port: target.port,
+                              host: ingress.host,
+                            },
+                          });
+                        }}
+                      >
+                        Sí, despublicar
+                      </button>
+                      <button className="btn" onClick={() => setConfirm(null)}>No</button>
+                    </>
+                  ) : (
+                    <button className="btn danger-ghost" onClick={() => setConfirm("unexpose")}>
+                      Despublicar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ) : target.service ? (
             <AdminPublish target={target} onNotice={(t, tone) => setFb({ text: t, tone })} />
@@ -218,6 +283,42 @@ export function ServiceAdmin({ target, onClose }: { target: AdminTarget; onClose
             <>
               <div className="insp-section">Credenciales</div>
               <div className="insp-hint-sm svcadmin-hint">{addon.access.hint}</div>
+            </>
+          )}
+
+          {/* ---- zona de peligro: desinstalar el complemento ---- */}
+          {addon && (
+            <>
+              <div className="insp-section">Quitar</div>
+              {confirm === "uninstall" ? (
+                <div className="svcadmin-danger-row svcadmin-danger-confirm">
+                  <span>
+                    Se desinstala <b>{addon.name}</b> y se borra su namespace{" "}
+                    <span className="mono">{addon.namespace}</span>. ¿Seguro?
+                  </span>
+                  <button
+                    className="btn danger"
+                    disabled={busy}
+                    onClick={() => {
+                      setConfirm(null);
+                      run(`desinstalando ${addon.name}`, { kind: "uninstall", addon: addon.key });
+                    }}
+                  >
+                    Sí, desinstalar
+                  </button>
+                  <button className="btn" onClick={() => setConfirm(null)}>Cancelar</button>
+                </div>
+              ) : (
+                <div className="svcadmin-danger-row">
+                  <button
+                    className="btn danger-ghost"
+                    disabled={busy || !cluster.online}
+                    onClick={() => setConfirm("uninstall")}
+                  >
+                    Desinstalar {addon.name}
+                  </button>
+                </div>
+              )}
             </>
           )}
 

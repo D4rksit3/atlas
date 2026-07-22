@@ -28,6 +28,10 @@ rules:
   - apiGroups: [""]
     resources: ["nodes", "pods"]
     verbs: ["get", "list", "watch"]
+  # Diagnóstico desde la GUI: leer logs de pods y eventos del namespace.
+  - apiGroups: [""]
+    resources: ["pods/log", "events"]
+    verbs: ["get", "list"]
   # Lectura de cargas + escritura acotada para ejecutar acciones de la GUI
   # (escalar = update; reiniciar = patch). No puede crear ni borrar cargas.
   - apiGroups: ["apps"]
@@ -48,12 +52,13 @@ rules:
   - apiGroups: ["cert-manager.io"]
     resources: ["clusterissuers"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
-  # Publicar servicios desde la GUI: leer los Ingress (URLs del panel de
-  # servicios) y crear/actualizar los "atlas-<service>". También lee Services
-  # para validar que lo que se publica existe. Sin permiso de borrado.
+  # Publicar/despublicar servicios desde la GUI: leer los Ingress (URLs del
+  # panel de servicios), crear/actualizar los "atlas-<service>" y borrarlos al
+  # despublicar (el agente solo borra Ingress con la etiqueta managed-by=atlas).
+  # También lee Services para validar que lo que se publica existe.
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "patch"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch"]

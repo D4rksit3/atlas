@@ -52,6 +52,8 @@ type Node struct {
 	Name  string `json:"name"`
 	Role  string `json:"role"` // "control-plane" | "worker"
 	Ready bool   `json:"ready"`
+	// Usage: CPU/memoria en uso del nodo, si hay metrics-server.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // Placement dice cuántos pods de una carga corren en un nodo concreto. Una carga
@@ -59,6 +61,13 @@ type Node struct {
 type Placement struct {
 	Node string `json:"node"`
 	Pods int    `json:"pods"`
+}
+
+// Usage es consumo VIVO de recursos (fuente: metrics-server). Presente solo si
+// el clúster tiene la API metrics.k8s.io.
+type Usage struct {
+	CPUm  int64 `json:"cpum"`  // millicores en uso
+	MemMi int64 `json:"memMi"` // MiB en uso
 }
 
 // PodInfo es un pod concreto de una carga: su IP real, dónde corre y su fase.
@@ -82,6 +91,8 @@ type Workload struct {
 	// Pods: los pods de la carga con su IP (acotado a MaxPodsPerWorkload para no
 	// inflar el snapshot en cargas grandes).
 	Pods []PodInfo `json:"pods,omitempty"`
+	// Usage: CPU/memoria en uso (suma de sus pods), si hay metrics-server.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // MaxPodsPerWorkload acota cuántos pods (con IP) viajan por carga en el snapshot.
@@ -182,6 +193,10 @@ const (
 	ActionRollback = "rollback" // revertir un proyecto a su revisión anterior
 	ActionIssuer   = "issuer"   // crear un ClusterIssuer de cert-manager (TLS ACME)
 	ActionExpose   = "expose"   // publicar un servicio: crear su Ingress (host -> service)
+	ActionUninstall = "uninstall" // quitar un complemento del catálogo (helm uninstall / borrar manifiesto)
+	ActionUnexpose  = "unexpose"  // retirar una publicación (borrar el Ingress atlas-<service>)
+	ActionLogs      = "logs"      // diagnóstico: últimos logs de los pods de una carga
+	ActionEvents    = "events"    // diagnóstico: eventos recientes de un namespace
 )
 
 // ExposeSpec describe cómo publicar un servicio del clúster: el agente crea un
@@ -373,6 +388,7 @@ type Action struct {
 	App          *AppSpec          `json:"app,omitempty"`
 	Issuer       *IssuerSpec       `json:"issuer,omitempty"`
 	Expose       *ExposeSpec       `json:"expose,omitempty"`
+	Output       string            `json:"output,omitempty"` // salida de logs/events
 	Status       string            `json:"status"`
 	Error        string            `json:"error,omitempty"`
 	RequestedBy  string            `json:"requestedBy,omitempty"` // usuario que la pidió (OIDC)
@@ -409,7 +425,13 @@ type ActionResult struct {
 	ID    string `json:"id"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	// Output: salida de las acciones de diagnóstico (logs / events). Acotada
+	// por el agente (MaxActionOutput) para no inflar latidos ni almacenamiento.
+	Output string `json:"output,omitempty"`
 }
+
+// MaxActionOutput acota la salida de una acción de diagnóstico (bytes).
+const MaxActionOutput = 64 * 1024
 
 // ---- Anotaciones: metadatos editables del mapa ----
 

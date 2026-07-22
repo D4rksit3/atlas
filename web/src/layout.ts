@@ -36,7 +36,9 @@ export function layout<T>(
   dir: "LR" | "TB" = "LR",
 ): Node<T>[] {
   const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: dir, nodesep: 24, ranksep: 104, marginx: 28, marginy: 28 });
+  // nodesep generoso: las cajas (namespace/nodo) son altas y con 24px se
+  // llegaban a rozar; 44px mantiene el aire también con mosaicos pequeños.
+  g.setGraph({ rankdir: dir, nodesep: 44, ranksep: 104, marginx: 28, marginy: 28 });
 
   nodes.forEach((n) => {
     const s = sizes.get(n.id) ?? { width: 210, height: 60 };

@@ -304,7 +304,32 @@ func (s *Server) handleListActions(w http.ResponseWriter, r *http.Request) {
 	if actions == nil {
 		actions = []api.Action{}
 	}
+	// Los values de un install pueden llevar SECRETOS (p. ej. la contraseña de
+	// Grafana): se enmascaran antes de salir. La GUI usa el resto de valores
+	// para precargar "Configurar" con lo realmente aplicado.
+	for i := range actions {
+		actions[i].Values = redactValues(actions[i].Addon, actions[i].Values)
+	}
 	writeJSON(w, http.StatusOK, actions)
+}
+
+// redactValues enmascara los valores de tipo password según el catálogo.
+func redactValues(addon string, values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return values
+	}
+	out := make(map[string]string, len(values))
+	for k, v := range values {
+		out[k] = v
+	}
+	for _, p := range api.AddonParams(addon) {
+		if p.Type == "password" {
+			if _, ok := out[p.Key]; ok {
+				out[p.Key] = "••••••"
+			}
+		}
+	}
+	return out
 }
 
 func (s *Server) handleTopology(w http.ResponseWriter, _ *http.Request) {

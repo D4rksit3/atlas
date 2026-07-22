@@ -73,7 +73,7 @@ func NewSampleCollector(provider api.Provider, workerNodes int) *SampleCollector
 
 func (c *SampleCollector) Collect() (api.Snapshot, error) {
 	nodes := []api.Node{
-		{Name: "cp-0", Role: "control-plane", Ready: true},
+		{Name: "cp-0", Role: "control-plane", Ready: true, Usage: &api.Usage{CPUm: 210, MemMi: 900}},
 	}
 	for i := 0; i < c.nodes; i++ {
 		nodes = append(nodes, api.Node{
@@ -85,16 +85,19 @@ func (c *SampleCollector) Collect() (api.Snapshot, error) {
 	}
 
 	workloads := []api.Workload{
-		{Name: "web", Namespace: "default", Kind: "Deployment", Replicas: 3, Pods: []api.PodInfo{
+		{Name: "web", Namespace: "default", Kind: "Deployment", Replicas: 3,
+			Usage: &api.Usage{CPUm: 34, MemMi: 180}, Pods: []api.PodInfo{
 			{Name: "web-7f9c-a1", IP: "10.42.0.11", Node: "cp-0", Phase: "Running"},
 			{Name: "web-7f9c-b2", IP: "10.42.1.12", Node: workerName(c.provider, 0), Phase: "Running"},
 			{Name: "web-7f9c-c3", IP: "10.42.1.13", Node: workerName(c.provider, 0), Phase: "Running"},
 		}},
-		{Name: "api", Namespace: "default", Kind: "Deployment", Replicas: 2, Pods: []api.PodInfo{
+		{Name: "api", Namespace: "default", Kind: "Deployment", Replicas: 2,
+			Usage: &api.Usage{CPUm: 58, MemMi: 240}, Pods: []api.PodInfo{
 			{Name: "api-55d8-x9", IP: "10.42.0.21", Node: "cp-0", Phase: "Running"},
 			{Name: "api-55d8-y7", IP: "10.42.1.22", Node: workerName(c.provider, 0), Phase: "Running"},
 		}},
-		{Name: "postgres", Namespace: "data", Kind: "StatefulSet", Replicas: 1, Pods: []api.PodInfo{
+		{Name: "postgres", Namespace: "data", Kind: "StatefulSet", Replicas: 1,
+			Usage: &api.Usage{CPUm: 21, MemMi: 310}, Pods: []api.PodInfo{
 			{Name: "postgres-0", IP: "10.42.1.31", Node: workerName(c.provider, 0), Phase: "Running"},
 		}},
 	}

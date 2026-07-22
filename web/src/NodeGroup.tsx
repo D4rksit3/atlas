@@ -23,6 +23,7 @@ export interface NodeGroupData {
   color: string;
   items: NodeGroupItem[];
   onSelect: (sel: Selection) => void;
+  usage?: string; // consumo vivo "123m · 456Mi" (metrics-server)
 }
 
 export function NodeGroup({ data }: { data: NodeGroupData }) {
@@ -34,7 +35,7 @@ export function NodeGroup({ data }: { data: NodeGroupData }) {
           <Icon name="server" size={16} />
         </span>
         <span className="ng-name">{data.nodeName}</span>
-        <span className="ng-role">{data.role}</span>
+        <span className="ng-role">{data.role}{data.usage ? ` · ${data.usage}` : ""}</span>
         <span
           className="ng-dot"
           style={{ background: data.online ? "var(--good)" : "var(--faint)" }}

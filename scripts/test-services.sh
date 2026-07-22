@@ -123,4 +123,66 @@ echo "== la publicación queda auditada =="
 api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/audit" | grep -q "publicar el servicio default/demo-web" \
   && check "auditoría de la publicación" si si || check "auditoría de la publicación" si no
 
+echo "== diagnóstico: logs y eventos desde la API =="
+LID=$(api -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"logs","namespace":"default","workload":"demo-web"}' \
+  "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+ok=no
+for i in $(seq 1 20); do
+  out=$(api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" | grep -o "\"id\":\"$LID\"[^}]*")
+  echo "$out" | grep -q '"status":"done"' && echo "$out" | grep -q 'pod demo-web' && ok=yes && break
+  sleep 2
+done
+check "logs de demo-web llegan con cabecera de pod" yes "$ok"
+EID=$(api -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"events","namespace":"default"}' \
+  "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+ok=no
+for i in $(seq 1 20); do
+  out=$(api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" | grep -o "\"id\":\"$EID\"[^}]*")
+  echo "$out" | grep -q '"status":"done"' && echo "$out" | grep -qi 'demo-web\|sin eventos' && ok=yes && break
+  sleep 2
+done
+check "eventos del namespace llegan" yes "$ok"
+
+echo "== despublicar: la acción unexpose borra el Ingress de Atlas =="
+api -o /dev/null -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"unexpose","expose":{"namespace":"default","service":"demo-web","port":80,"host":"x"}}' \
+  "http://$DOMAIN:$PORT/v1/clusters/$CID/actions"
+ok=no
+for i in $(seq 1 30); do
+  kubectl get ingress atlas-demo-web >/dev/null 2>&1 || { ok=yes; break; }
+  sleep 2
+done
+check "el Ingress atlas-demo-web desapareció" yes "$ok"
+
+echo "== ciclo completo de un complemento: instalar y DESINSTALAR (metallb) =="
+kubectl apply -f deploy/agent-addons.yaml >/dev/null   # RBAC amplio opt-in
+AID=$(api -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"install","addon":"metallb"}' "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" \
+  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+ok=no
+for i in $(seq 1 60); do
+  st=$(api "${AUTH[@]}" "http://$DOMAIN:$PORT/v1/clusters/$CID/actions" \
+    | grep -o "\"id\":\"$AID\",[^}]*\"status\":\"[a-z]*\"" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)
+  [ "$st" = "done" ] && ok=yes && break
+  [ "$st" = "error" ] && break
+  sleep 3
+done
+check "metallb instalado (acción done)" yes "$ok"
+kubectl -n metallb-system get deploy controller >/dev/null 2>&1 \
+  && check "deployment de metallb presente" si si || check "deployment de metallb presente" si no
+
+api -o /dev/null -X POST "${AUTH[@]}" -H 'Content-Type: application/json' \
+  -d '{"kind":"uninstall","addon":"metallb"}' "http://$DOMAIN:$PORT/v1/clusters/$CID/actions"
+ok=no
+for i in $(seq 1 40); do
+  kubectl get ns metallb-system >/dev/null 2>&1 || { ok=yes; break; }
+  sleep 3
+done
+check "metallb desinstalado (namespace fuera)" yes "$ok"
+kubectl get ns kube-system >/dev/null 2>&1 \
+  && check "los namespaces compartidos siguen intactos" si si \
+  || check "los namespaces compartidos siguen intactos" si no
+
 [ "$fail" = 0 ] && echo "== OK ==" || { echo "== FALLO =="; exit 1; }

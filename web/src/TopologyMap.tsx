@@ -54,6 +54,11 @@ const PLACE_COLOR = "#16B5A5"; // teal: ubicación de pods (carga → nodo)
 const CP_NODE = "#7C5CE6"; // violeta: nodo control-plane
 const WORKER = "#0E9E6E"; // verde: nodo worker
 
+/** Formatea consumo vivo: "123m · 456Mi". */
+function fmtUsage(u?: { cpum: number; memMi: number } | null): string {
+  return u ? `${u.cpum}m · ${u.memMi}Mi` : "";
+}
+
 function workloadIcon(w: Workload): IconKey {
   return w.kind === "StatefulSet" ? "database" : "workload";
 }
@@ -203,7 +208,10 @@ function build(
           kind: w.kind,
           replicas: w.replicas,
           ips: ips.slice(0, 3).concat(ips.length > 3 ? [`+${ips.length - 3}`] : []),
-          sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op, pods: w.pods ?? [] },
+          sel: {
+            key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op,
+            pods: w.pods ?? [], usage: w.usage ?? undefined,
+          },
         };
       };
 
@@ -266,7 +274,10 @@ function build(
             icon: workloadIcon(w),
             pods: pl.pods,
             muted: SYSTEM_NS.has(w.namespace),
-            sel: { key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op, pods: w.pods ?? [] },
+            sel: {
+              key: wKey, title: w.name, kind: w.kind, subtitle: w.namespace, op,
+              pods: w.pods ?? [], usage: w.usage ?? undefined,
+            },
           });
         });
         items.sort((a, b) => Number(a.muted) - Number(b.muted)); // apps primero
@@ -275,9 +286,12 @@ function build(
           data: {
             nodeName: n.name, role: n.role, online: n.ready && c.online,
             color: isCP ? CP_NODE : WORKER, items, onSelect: opts.onSelect,
+            usage: fmtUsage(n.usage),
           },
         });
-        sizes.set(nid, { width: 258, height: 46 + Math.max(items.length, 1) * 28 + 12 });
+        // Altura acorde al CSS real (fila = 30px): si se subestima, las cajas
+        // se solapan cuando el nodo tiene muchas cargas.
+        sizes.set(nid, { width: 258, height: 46 + Math.max(items.length, 1) * 30 + 14 });
         edges.push({
           id: `e-${nid}`, source: clusterId, target: nid,
           style: { stroke: isCP ? CP_NODE : WORKER, opacity: 0.45 },
@@ -296,7 +310,7 @@ function build(
       const isCP = n.role === "control-plane";
       add(nid, {
         label: n.name,
-        sublabel: n.role,
+        sublabel: n.usage ? `${n.role} · ${fmtUsage(n.usage)}` : n.role,
         color: isCP ? CP_NODE : WORKER,
         icon: "server",
         online: n.ready,
@@ -331,7 +345,7 @@ function build(
       };
       add(id, {
         label: wAnno.displayName || w.name,
-        sublabel: `${w.kind} · ${w.replicas}`,
+        sublabel: w.usage ? `${w.kind} · ${w.replicas} · ${fmtUsage(w.usage)}` : `${w.kind} · ${w.replicas}`,
         color: wAnno.color || workloadColor(w),
         icon: workloadIcon(w),
         muted: !c.online || SYSTEM_NS.has(w.namespace),
@@ -344,6 +358,7 @@ function build(
           subtitle: w.namespace,
           op,
           pods: w.pods ?? [],
+          usage: w.usage ?? undefined,
         },
       });
       // Pertenencia al clúster (arista muy tenue) + jerarquía de layout.
@@ -441,7 +456,15 @@ export function TopologyMap() {
   const [selected, setSelected] = useState<Selection | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [showServices, setShowServices] = useState(false);
-  const [view, setView] = useState<ViewMode>("flow");
+  // La vista elegida se recuerda entre sesiones (lo configurado, configurado queda).
+  const [view, setViewRaw] = useState<ViewMode>(() => {
+    const v = localStorage.getItem("atlas.view");
+    return v === "node" || v === "red" ? v : "flow";
+  });
+  const setView = (v: ViewMode) => {
+    localStorage.setItem("atlas.view", v);
+    setViewRaw(v);
+  };
   const instance = useRef<ReactFlowInstance | null>(null);
 
   const loadAnnos = async () => {

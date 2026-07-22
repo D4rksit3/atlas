@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -148,6 +149,10 @@ func (c *KubeCollector) Collect() (api.Snapshot, error) {
 	// Services: el "cableado" del clúster (ClusterIP, puertos, a qué cargas
 	// enrutan). Best-effort: sin permiso, seguimos sin ellos.
 	snap.Services = c.collectServices(ctx, pods.Items)
+
+	// Métricas vivas (CPU/memoria) por carga y por nodo, si el clúster tiene
+	// metrics-server (API metrics.k8s.io). Best-effort: sin ella, seguimos.
+	c.fillUsage(ctx, pods.Items, snap.Workloads, snap.Nodes)
 
 	// Proyectos GitOps (Applications de ArgoCD), si ArgoCD está instalado.
 	// Best-effort: si el CRD no existe o no hay permiso, seguimos sin ellos.
@@ -394,6 +399,98 @@ func (c *KubeCollector) collectServices(ctx context.Context, pods []corev1.Pod) 
 		return out[a].Name < out[b].Name
 	})
 	return out
+}
+
+// GVRs de la API de métricas (metrics-server).
+var (
+	podMetricsGVR  = schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}
+	nodeMetricsGVR = schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "nodes"}
+)
+
+// fillUsage suma el consumo real (metrics-server) por CARGA (vía sus pods) y lo
+// anota también por NODO. Si la API de métricas no está, no pasa nada.
+func (c *KubeCollector) fillUsage(ctx context.Context, pods []corev1.Pod, workloads []api.Workload, nodes []api.Node) {
+	podList, err := c.dyn.Resource(podMetricsGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		// pod "ns/nombre" -> carga dueña "ns/carga"
+		owner := make(map[string]string, len(pods))
+		for i := range pods {
+			if w := ownerWorkload(&pods[i]); w != "" {
+				owner[pods[i].Namespace+"/"+pods[i].Name] = pods[i].Namespace + "/" + w
+			}
+		}
+		agg := make(map[string]*api.Usage)
+		for i := range podList.Items {
+			pm := &podList.Items[i]
+			key, ok := owner[pm.GetNamespace()+"/"+pm.GetName()]
+			if !ok {
+				continue
+			}
+			cpu, mem := podMetricsUsage(pm.Object)
+			u := agg[key]
+			if u == nil {
+				u = &api.Usage{}
+				agg[key] = u
+			}
+			u.CPUm += cpu
+			u.MemMi += mem
+		}
+		for i := range workloads {
+			if u := agg[workloads[i].Namespace+"/"+workloads[i].Name]; u != nil {
+				workloads[i].Usage = u
+			}
+		}
+	}
+
+	nodeList, err := c.dyn.Resource(nodeMetricsGVR).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		byName := make(map[string]*api.Usage, len(nodeList.Items))
+		for i := range nodeList.Items {
+			nm := &nodeList.Items[i]
+			cpuS, _, _ := unstructured.NestedString(nm.Object, "usage", "cpu")
+			memS, _, _ := unstructured.NestedString(nm.Object, "usage", "memory")
+			byName[nm.GetName()] = &api.Usage{CPUm: quantityMilli(cpuS), MemMi: quantityMi(memS)}
+		}
+		for i := range nodes {
+			if u := byName[nodes[i].Name]; u != nil {
+				nodes[i].Usage = u
+			}
+		}
+	}
+}
+
+// podMetricsUsage suma el uso de todos los contenedores de un PodMetrics.
+func podMetricsUsage(obj map[string]interface{}) (cpuM, memMi int64) {
+	containers, _, _ := unstructured.NestedSlice(obj, "containers")
+	for _, raw := range containers {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cpuS, _, _ := unstructured.NestedString(m, "usage", "cpu")
+		memS, _, _ := unstructured.NestedString(m, "usage", "memory")
+		cpuM += quantityMilli(cpuS)
+		memMi += quantityMi(memS)
+	}
+	return cpuM, memMi
+}
+
+// quantityMilli parsea una cantidad K8s de CPU a millicores.
+func quantityMilli(s string) int64 {
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		return 0
+	}
+	return q.MilliValue()
+}
+
+// quantityMi parsea una cantidad K8s de memoria a MiB.
+func quantityMi(s string) int64 {
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		return 0
+	}
+	return q.Value() / (1024 * 1024)
 }
 
 // labelsMatch dice si las labels del pod satisfacen TODO el selector.

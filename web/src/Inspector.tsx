@@ -67,6 +67,11 @@ export function Inspector({
   const [formKey, setFormKey] = useState<string | null>(null); // addon con formulario abierto
   const [formVals, setFormVals] = useState<Record<string, string>>({});
 
+  // diagnóstico (logs / eventos)
+  const [diag, setDiag] = useState<string | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagFb, setDiagFb] = useState<Feedback | null>(null);
+
   // emisor TLS (cert-manager)
   const [issEmail, setIssEmail] = useState("");
   const [issEnv, setIssEnv] = useState<"staging" | "production">("staging");
@@ -210,6 +215,45 @@ export function Inspector({
 
   const isInstalled = (key: string) =>
     (cluster?.installedAddons.includes(key) ?? false) || justInstalled.includes(key);
+
+  // ---- diagnóstico: pedir logs o eventos al agente y mostrar la salida ----
+  async function runDiag(kind: "logs" | "events") {
+    const clusterId = op?.clusterId ?? cluster?.clusterId;
+    const ns = op?.namespace ?? "default";
+    if (!clusterId) return;
+    setDiagBusy(true);
+    setDiag(null);
+    setDiagFb({ text: kind === "logs" ? "pidiendo logs…" : "pidiendo eventos…", tone: "info" });
+    try {
+      const a = await postAction(clusterId, {
+        kind,
+        namespace: ns,
+        workload: kind === "logs" ? op?.workload : undefined,
+        workloadKind: op?.workloadKind,
+      });
+      const poll = window.setInterval(async () => {
+        try {
+          const acts = await fetchActions(clusterId);
+          const act = acts.find((x) => x.id === a.id);
+          if (act?.status === "done") {
+            window.clearInterval(poll);
+            setDiagBusy(false);
+            setDiagFb(null);
+            setDiag(act.output || "(sin salida)");
+          } else if (act?.status === "error") {
+            window.clearInterval(poll);
+            setDiagBusy(false);
+            setDiagFb({ text: `error: ${act.error}`, tone: "err" });
+          }
+        } catch {
+          /* reintenta */
+        }
+      }, 1500);
+    } catch (e) {
+      setDiagBusy(false);
+      setDiagFb({ text: `no se pudo pedir: ${String(e)}`, tone: "err" });
+    }
+  }
 
   // ---- emisor TLS (ClusterIssuer de cert-manager) ----
   async function createIssuer() {
@@ -507,6 +551,14 @@ export function Inspector({
           </>
         )}
 
+        {/* ---- consumo vivo (metrics-server) ---- */}
+        {sel.usage && (
+          <div className="insp-usage">
+            CPU <b>{sel.usage.cpum}m</b> · Memoria <b>{sel.usage.memMi}Mi</b>
+            <span className="insp-usage-src"> (en uso ahora)</span>
+          </div>
+        )}
+
         {/* ---- pods e IPs de la carga ---- */}
         {(sel.pods?.length ?? 0) > 0 && (
           <>
@@ -525,6 +577,28 @@ export function Inspector({
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {/* ---- diagnóstico: logs y eventos sin salir de Atlas ---- */}
+        {op && (
+          <>
+            <div className="insp-section">Diagnóstico</div>
+            <div className="insp-actions">
+              <button className="btn" onClick={() => runDiag("logs")} disabled={diagBusy || !op.online}>
+                {diagBusy ? "pidiendo…" : "Ver logs"}
+              </button>
+              <button className="btn" onClick={() => runDiag("events")} disabled={diagBusy || !op.online}>
+                Eventos del ns
+              </button>
+            </div>
+            {diagFb && <div className={`insp-fb ${diagFb.tone}`}>{diagFb.text}</div>}
+            {diag !== null && (
+              <div className="diag-out-wrap">
+                <pre className="diag-out">{diag}</pre>
+                <button className="insp-x diag-close" onClick={() => setDiag(null)} aria-label="cerrar salida">×</button>
+              </div>
+            )}
           </>
         )}
 

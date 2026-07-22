@@ -106,6 +106,17 @@ func summarize(a api.Action) string {
 			return fmt.Sprintf("publicar el servicio %s/%s en %s", a.Expose.Namespace, a.Expose.Service, a.Expose.Host)
 		}
 		return "publicar un servicio"
+	case api.ActionUninstall:
+		return fmt.Sprintf("desinstalar el complemento %q", a.Addon)
+	case api.ActionLogs:
+		return fmt.Sprintf("ver logs de %s/%s", a.Namespace, a.Workload)
+	case api.ActionEvents:
+		return fmt.Sprintf("ver eventos de %s", a.Namespace)
+	case api.ActionUnexpose:
+		if a.Expose != nil {
+			return fmt.Sprintf("despublicar el servicio %s/%s", a.Expose.Namespace, a.Expose.Service)
+		}
+		return "despublicar un servicio"
 	default:
 		return a.Kind + " " + a.Namespace + "/" + a.Workload
 	}
@@ -164,6 +175,26 @@ func validActionRequest(req api.ActionRequest) error {
 		}
 		if !validHost(e.Host) {
 			return errors.New("expose.host no es un dominio válido")
+		}
+		return nil
+	case api.ActionUninstall:
+		if req.Addon == "" {
+			return errors.New("uninstall requiere 'addon'")
+		}
+		return nil
+	case api.ActionUnexpose:
+		if req.Expose == nil || req.Expose.Namespace == "" || req.Expose.Service == "" {
+			return errors.New("unexpose requiere expose.namespace y expose.service")
+		}
+		return nil
+	case api.ActionLogs:
+		if req.Namespace == "" || req.Workload == "" {
+			return errors.New("logs requiere namespace y workload")
+		}
+		return nil
+	case api.ActionEvents:
+		if req.Namespace == "" {
+			return errors.New("events requiere namespace")
 		}
 		return nil
 	case api.ActionScale, api.ActionRestart:

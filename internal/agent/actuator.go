@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -170,14 +171,19 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 	// Instalar puede tardar (bajar el chart/manifiesto y aplicar muchos recursos;
 	// kube-prometheus-stack en particular es grande).
 	timeout := a.timeout
-	if act.Kind == api.ActionInstall {
+	if act.Kind == api.ActionInstall || act.Kind == api.ActionUninstall {
 		timeout = 6 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	var err error
+	var output string
 	switch act.Kind {
+	case api.ActionLogs:
+		output, err = a.workloadLogs(ctx, act.Namespace, act.Workload)
+	case api.ActionEvents:
+		output, err = a.namespaceEvents(ctx, act.Namespace)
 	case api.ActionScale:
 		err = a.scale(ctx, act)
 	case api.ActionRestart:
@@ -190,6 +196,10 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 		err = a.createIssuer(ctx, act.Issuer)
 	case api.ActionExpose:
 		err = a.expose(ctx, act.Expose)
+	case api.ActionUninstall:
+		err = a.uninstallAddon(ctx, act.Addon)
+	case api.ActionUnexpose:
+		err = a.unexpose(ctx, act.Expose)
 	case api.ActionSync:
 		err = a.syncApp(ctx, act.App)
 	case api.ActionRollback:
@@ -200,7 +210,91 @@ func (a *KubeActuator) Execute(ctx context.Context, act api.Action) api.ActionRe
 	if err != nil {
 		return api.ActionResult{ID: act.ID, OK: false, Error: err.Error()}
 	}
-	return api.ActionResult{ID: act.ID, OK: true}
+	return api.ActionResult{ID: act.ID, OK: true, Output: output}
+}
+
+// workloadLogs devuelve la cola de logs de los pods de una carga (hasta 2 pods,
+// 120 líneas por pod), con una cabecera por pod. Salida acotada.
+func (a *KubeActuator) workloadLogs(ctx context.Context, namespace, workload string) (string, error) {
+	pods, err := a.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("listando pods: %w", err)
+	}
+	var mine []corev1.Pod
+	for i := range pods.Items {
+		if ownerWorkload(&pods.Items[i]) == workload {
+			mine = append(mine, pods.Items[i])
+		}
+	}
+	if len(mine) == 0 {
+		return "", fmt.Errorf("la carga %s/%s no tiene pods", namespace, workload)
+	}
+	if len(mine) > 2 {
+		mine = mine[:2]
+	}
+	tail := int64(120)
+	var b strings.Builder
+	for i := range mine {
+		p := &mine[i]
+		fmt.Fprintf(&b, "── pod %s (%s) ──\n", p.Name, p.Status.Phase)
+		raw, err := a.client.CoreV1().Pods(namespace).
+			GetLogs(p.Name, &corev1.PodLogOptions{TailLines: &tail}).Do(ctx).Raw()
+		if err != nil {
+			fmt.Fprintf(&b, "(sin logs: %v)\n", err)
+			continue
+		}
+		b.Write(raw)
+		if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+			b.WriteByte('\n')
+		}
+	}
+	out := b.String()
+	if len(out) > api.MaxActionOutput {
+		out = "…(recortado)…\n" + out[len(out)-api.MaxActionOutput:]
+	}
+	return out, nil
+}
+
+// namespaceEvents devuelve los eventos recientes de un namespace (más nuevos
+// primero, hasta 40), en formato legible.
+func (a *KubeActuator) namespaceEvents(ctx context.Context, namespace string) (string, error) {
+	evs, err := a.client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("listando eventos: %w", err)
+	}
+	items := evs.Items
+	sort.Slice(items, func(i, j int) bool {
+		return eventTime(&items[i]).After(eventTime(&items[j]))
+	})
+	if len(items) > 40 {
+		items = items[:40]
+	}
+	if len(items) == 0 {
+		return "(sin eventos recientes en " + namespace + ")", nil
+	}
+	var b strings.Builder
+	for i := range items {
+		e := &items[i]
+		fmt.Fprintf(&b, "%s  %-7s %-20s %s/%s: %s\n",
+			eventTime(e).Format("15:04:05"), e.Type, e.Reason,
+			e.InvolvedObject.Kind, e.InvolvedObject.Name, e.Message)
+	}
+	out := b.String()
+	if len(out) > api.MaxActionOutput {
+		out = out[:api.MaxActionOutput] + "\n…(recortado)…"
+	}
+	return out, nil
+}
+
+// eventTime devuelve el instante más representativo de un evento.
+func eventTime(e *corev1.Event) time.Time {
+	if !e.LastTimestamp.IsZero() {
+		return e.LastTimestamp.Time
+	}
+	if !e.EventTime.IsZero() {
+		return e.EventTime.Time
+	}
+	return e.CreationTimestamp.Time
 }
 
 func (a *KubeActuator) scale(ctx context.Context, act api.Action) error {
@@ -466,6 +560,114 @@ func (a *KubeActuator) expose(ctx context.Context, spec *api.ExposeSpec) error {
 		"spec":       ingSpec,
 	}}
 	return a.applyOne(ctx, ing, spec.Namespace)
+}
+
+// sharedNamespaces son namespaces que NUNCA se borran al desinstalar: no son
+// propiedad de ningún complemento.
+var sharedNamespaces = map[string]bool{
+	"kube-system": true, "kube-public": true, "kube-node-lease": true,
+	"default": true, "atlas-system": true,
+}
+
+// uninstallAddon quita un complemento del catálogo: helm uninstall si es un
+// chart, o borrado de sus recursos (en orden inverso) si es un manifiesto. El
+// namespace propio del complemento se elimina; los compartidos (kube-system…)
+// jamás se tocan.
+func (a *KubeActuator) uninstallAddon(ctx context.Context, name string) error {
+	spec, ok := addons[name]
+	if !ok {
+		return fmt.Errorf("complemento no soportado: %q", name)
+	}
+	if spec.helm != nil {
+		if err := a.uninstallHelm(spec.namespace, spec.helm); err != nil {
+			return err
+		}
+	} else {
+		manifest, err := a.fetch(ctx, spec.url)
+		if err != nil {
+			return err
+		}
+		if err := a.deleteManifest(ctx, manifest, spec.namespace); err != nil {
+			return err
+		}
+	}
+	if !sharedNamespaces[spec.namespace] {
+		err := a.client.CoreV1().Namespaces().Delete(ctx, spec.namespace, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("borrando el namespace %s: %w", spec.namespace, err)
+		}
+	}
+	return nil
+}
+
+// deleteManifest borra los recursos de un manifiesto multi-documento en ORDEN
+// INVERSO al de aplicación (primero cargas, al final CRDs/roles). Los recursos
+// que ya no existen se ignoran.
+func (a *KubeActuator) deleteManifest(ctx context.Context, manifest []byte, defaultNS string) error {
+	dec := k8syaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifest), 4096)
+	var objs []*unstructured.Unstructured
+	for {
+		raw := map[string]interface{}{}
+		if err := dec.Decode(&raw); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("parseando manifiesto: %w", err)
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		obj := &unstructured.Unstructured{Object: raw}
+		if obj.GetKind() != "" {
+			objs = append(objs, obj)
+		}
+	}
+	for i := len(objs) - 1; i >= 0; i-- {
+		if err := a.deleteOne(ctx, objs[i], defaultNS); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *KubeActuator) deleteOne(ctx context.Context, obj *unstructured.Unstructured, defaultNS string) error {
+	gvk := obj.GroupVersionKind()
+	mapping, err := a.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil // el CRD ya no existe: sus recursos tampoco
+	}
+	var ri dynamic.ResourceInterface
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		ns := obj.GetNamespace()
+		if ns == "" {
+			ns = defaultNS
+		}
+		ri = a.dyn.Resource(mapping.Resource).Namespace(ns)
+	} else {
+		ri = a.dyn.Resource(mapping.Resource)
+	}
+	if err := ri.Delete(ctx, obj.GetName(), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("borrando %s/%s: %w", gvk.Kind, obj.GetName(), err)
+	}
+	return nil
+}
+
+// unexpose retira una publicación creada por Atlas: borra el Ingress
+// "atlas-<service>". Solo toca Ingress con la etiqueta managed-by=atlas — jamás
+// borra rutas creadas por otros.
+func (a *KubeActuator) unexpose(ctx context.Context, spec *api.ExposeSpec) error {
+	if spec == nil {
+		return fmt.Errorf("falta el servicio a despublicar")
+	}
+	name := "atlas-" + spec.Service
+	ing, err := a.client.NetworkingV1().Ingresses(spec.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("el Ingress %s/%s no existe: %w", spec.Namespace, name, err)
+	}
+	if ing.Labels["app.kubernetes.io/managed-by"] != "atlas" {
+		return fmt.Errorf("el Ingress %s/%s no lo gestiona Atlas: no lo toco", spec.Namespace, name)
+	}
+	return a.client.NetworkingV1().Ingresses(spec.Namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
 
 // syncApp fuerza una sincronización del proyecto (Application) a su revisión
