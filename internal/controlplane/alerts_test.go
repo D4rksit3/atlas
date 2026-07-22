@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // topoDe construye una topología mínima para los tests de alertas.

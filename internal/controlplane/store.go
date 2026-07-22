@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // Errores de dominio que el servidor traduce a códigos HTTP.

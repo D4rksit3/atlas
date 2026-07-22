@@ -28,7 +28,7 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/util/retry"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // Actuator ejecuta en el clúster las acciones que ordena la GUI (vía el control

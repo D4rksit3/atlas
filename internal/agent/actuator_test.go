@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // TestAddonCatalogConsistente evita el error fácil de añadir un complemento al

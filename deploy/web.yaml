@@ -60,7 +60,7 @@ spec:
       containers:
         - name: web
           # TODO: reemplaza por tu imagen publicada (web/Dockerfile).
-          image: ghcr.io/atlasctl/atlas-web:latest
+          image: ghcr.io/d4rksit3/atlas-web:latest
           ports:
             - { name: http, containerPort: 8080 }
           volumeMounts:

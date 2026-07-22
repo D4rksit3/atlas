@@ -3,7 +3,7 @@ package agent
 import (
 	"math/rand"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // Collector obtiene el estado del clúster donde corre el agente.

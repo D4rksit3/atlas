@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 func TestRegisterAndHeartbeat(t *testing.T) {

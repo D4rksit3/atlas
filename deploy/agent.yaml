@@ -111,7 +111,7 @@ spec:
       containers:
         - name: agent
           # TODO: reemplaza por tu imagen publicada (Dockerfile target 'agent').
-          image: ghcr.io/atlasctl/atlas-agent:latest
+          image: ghcr.io/d4rksit3/atlas-agent:latest
           args:
             - "--collector=kube"       # lee este clúster real (in-cluster)
             - "--transport=grpc"       # stream bidireccional: órdenes al instante

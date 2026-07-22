@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/atlasctl/atlas/internal/auth"
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/internal/auth"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // Server expone la API HTTP del control plane. Dos superficies:

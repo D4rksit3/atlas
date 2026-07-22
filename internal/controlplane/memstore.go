@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // clusterState es el estado interno de un clúster registrado en memoria.

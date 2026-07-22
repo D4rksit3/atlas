@@ -39,7 +39,7 @@ spec:
       containers:
         - name: controlplane
           # TODO: reemplaza por tu imagen publicada (Dockerfile target 'controlplane').
-          image: ghcr.io/atlasctl/atlas-controlplane:latest
+          image: ghcr.io/d4rksit3/atlas-controlplane:latest
           args: ["--addr", ":8080"]
           ports:
             - { name: http, containerPort: 8080 }

@@ -62,8 +62,8 @@ test-grpc: ## E2E: transporte gRPC bidireccional (push instantáneo + reconexió
 	./scripts/test-grpc.sh
 
 proto: ## Regenera el código Go del canal gRPC (requiere protoc + plugins go)
-	protoc --go_out=. --go_opt=module=github.com/atlasctl/atlas \
-	       --go-grpc_out=. --go-grpc_opt=module=github.com/atlasctl/atlas \
+	protoc --go_out=. --go_opt=module=github.com/D4rksit3/atlas \
+	       --go-grpc_out=. --go-grpc_opt=module=github.com/D4rksit3/atlas \
 	       proto/atlas/v1/channel.proto
 
 test-ingress: ## E2E: publicar servicios — ingress-nginx + cert-manager + ClusterIssuer desde la GUI (k3d)

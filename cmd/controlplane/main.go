@@ -16,10 +16,10 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"github.com/atlasctl/atlas/internal/auth"
-	"github.com/atlasctl/atlas/internal/controlplane"
-	"github.com/atlasctl/atlas/internal/mtls"
-	"github.com/atlasctl/atlas/internal/pki"
+	"github.com/D4rksit3/atlas/internal/auth"
+	"github.com/D4rksit3/atlas/internal/controlplane"
+	"github.com/D4rksit3/atlas/internal/mtls"
+	"github.com/D4rksit3/atlas/internal/pki"
 )
 
 func main() {
@@ -45,7 +45,7 @@ func main() {
 	caCert := flag.String("ca-cert", os.Getenv("ATLAS_CA_CERT"), "cert de la CA de Atlas (activa la vinculación por token junto a --ca-key y --agent-public-url)")
 	caKey := flag.String("ca-key", os.Getenv("ATLAS_CA_KEY"), "clave de la CA de Atlas")
 	agentPublicURL := flag.String("agent-public-url", os.Getenv("ATLAS_AGENT_PUBLIC_URL"), "URL mTLS pública a la que marcarán los agentes remotos vinculados por token")
-	agentImage := flag.String("agent-image", envOr("ATLAS_AGENT_IMAGE", "ghcr.io/atlasctl/atlas-agent:latest"), "imagen del agente en el manifiesto de vinculación")
+	agentImage := flag.String("agent-image", envOr("ATLAS_AGENT_IMAGE", "ghcr.io/d4rksit3/atlas-agent:latest"), "imagen del agente en el manifiesto de vinculación")
 	flag.Parse()
 
 	store, closeStore := buildStore(*storeKind, *pgDSN, *offline)

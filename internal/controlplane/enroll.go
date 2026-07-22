@@ -22,9 +22,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atlasctl/atlas/internal/auth"
-	"github.com/atlasctl/atlas/internal/pki"
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/internal/auth"
+	"github.com/D4rksit3/atlas/internal/pki"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // EnrollConfig configura el enrolamiento por token.

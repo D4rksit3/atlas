@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // Version del agente; sobreescríbela en el build con -ldflags si quieres.

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // EvaluateAlerts deriva las alertas activas de una topología. Determinista y

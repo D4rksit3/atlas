@@ -106,7 +106,7 @@ spec:
       securityContext: { runAsNonRoot: true, runAsUser: 65532 }
       containers:
         - name: agent
-          image: ghcr.io/atlasctl/atlas-agent:latest
+          image: ghcr.io/d4rksit3/atlas-agent:latest
           args:
             - "--collector=kube"
             - "--transport=grpc"

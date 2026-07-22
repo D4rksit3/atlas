@@ -12,9 +12,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/atlasctl/atlas/internal/agent"
-	"github.com/atlasctl/atlas/internal/mtls"
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/internal/agent"
+	"github.com/D4rksit3/atlas/internal/mtls"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 func main() {

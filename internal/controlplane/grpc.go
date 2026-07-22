@@ -11,8 +11,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/atlasctl/atlas/internal/channelpb"
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/internal/channelpb"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // agentChannel implementa el servicio gRPC AgentChannel: el stream bidireccional

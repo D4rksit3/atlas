@@ -14,8 +14,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/atlasctl/atlas/internal/channelpb"
-	"github.com/atlasctl/atlas/pkg/api"
+	"github.com/D4rksit3/atlas/internal/channelpb"
+	"github.com/D4rksit3/atlas/pkg/api"
 )
 
 // RunGRPC es el transporte preferido: en vez de latir por HTTP y recoger las
